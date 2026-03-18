@@ -10,7 +10,7 @@ everything is in one .cpp file, no dependencies.
 
 ## download
 
-grab a precompiled binary from [releases](https://github.com/user/tinyload/releases) or build it yourself.
+grab a precompiled binary from [releases](https://github.com/iamsopotatoe-coder/tinyload/releases) or build it yourself.
 
 ## building from source
 
