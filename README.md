@@ -4,7 +4,7 @@ simple PE packer for Windows. compresses and optionally XOR-encrypts executables
 
 ## how it works
 
-TinyLoad appends your compressed payload to a copy of itself. when the packed exe runs it extracts the original to a temp folder, runs it, waits for it to finish, then deletes it.
+TinyLoad appends your compressed payload to a copy of itself. when the packed exe runs it decrypts the code and runs it in RAM
 
 everything is in one .cpp file, no dependencies.
 
