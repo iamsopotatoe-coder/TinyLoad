@@ -3,88 +3,113 @@
 
 <head>
     <title>TinyLoad - PE packer for Windows</title>
+    <style>
+        body { font-family: sans-serif; }
+        
+        /* Hide sections by default */
+        .section { display: none; }
+
+        /* Default: Show Home if no target is active */
+        #home { display: block; }
+
+        /* When Blog is targeted: Show Blog, Hide Home */
+        #blog:target { display: block; }
+        #blog:target ~ #home { display: none; }
+
+        /* When Home is targeted explicitly */
+        #home:target { display: block; }
+        
+        /* Hide the header/top-level text when the Blog is targeted for a "blank page" feel */
+        body:has(#blog:target) .main-header { display: none; }
+    </style>
 </head>
 
 <body>
 
-    <h1>TinyLoad</h1>
-    <p>simple PE packer with LZ77 compression and XOR encryption for Windows executables.</p>
+    <div class="main-header">
+        <h1>TinyLoad</h1>
+        <p>simple PE packer with LZ77 compression and XOR encryption for Windows executables.</p>
+        <p><a href="#home">Home</a> | <a href="#blog">Blog</a></p>
+        <hr>
+    </div>
 
-    <hr>
+    <!-- Blog comes before Home so we can use the sibling selector ~ -->
+    <div id="blog" class="section">
+        <p><a href="#home">← Back to Home</a></p>
+        <h2>Development Blog</h2>
+        <h3>Introducing Morphine: The Virtualization Revolution</h3>
+        <p>In the world of PE packing, the battle lines are constantly shifting. what worked yesterday—simple file-dropping and basic XOR loops—is now trivial for modern heuristic engines and EDRs to flag. to stay ahead, we have to stop playing by the processor's rules.</p>
+        
+        <p>today, we are announcing a fundamental shift in the TinyLoad architecture: <strong>The Morphine VM Engine</strong> (coming in v3).</p>
 
-    <h2>What is this</h2>
-    <p>TinyLoad is a simple tool for packing Windows executables. it compresses the input file and can optionally apply
-        rolling XOR encryption to the payload. when the packed executable runs, it extracts the original to a temp
-        directory, runs it, waits for it to finish, then cleans up.</p>
-    <p>the whole thing is one .cpp file with no external dependencies. makes it easy to integrate or just use as a
-        reference.</p>
+        <h4>Moving Beyond the Instruction Set</h4>
+        <p>traditional packers rely on native x86/x64 instructions to handle payload decryption. while effective for a time, these patterns are easily "fingerprinted." if an analyst sees a specific loop with a specific XOR constant, they’ve already won.</p>
+        
+        <p><strong>Morphine</strong> changes the game by introducing a <strong>custom bytecode virtual machine</strong> directly into the TinyLoad stub.</p>
 
-    <hr>
+        <h4>How Morphine Works</h4>
+        <p>instead of running native assembly, the TinyLoad stub will embed a lightweight interpreter. the logic for decrypting your payload is "lifted" into a custom language that only this specific interpreter understands.</p>
 
-    <h2>Usage</h2>
-    <pre>
+        <ul>
+            <li><strong>Instruction Set Randomization:</strong> every time you pack a file, the "opcodes" are reshuffled.</li>
+            <li><strong>Decoupled Control Flow:</strong> because the logic is virtualized, standard disassemblers like IDA or Ghidra cannot automatically trace the decryption process.</li>
+            <li><strong>In-Memory Purity:</strong> combined with our v2 manual-mapping technology, the payload remains virtualized until the very moment it is executed in-memory.</li>
+        </ul>
+    </div>
+
+    <div id="home" class="section">
+        <h2>What is this</h2>
+        <p>TinyLoad is a simple tool for packing Windows executables. it compresses the input file and can optionally apply
+            rolling XOR encryption to the payload. when the packed executable runs, it extracts the original to a temp
+            directory, runs it, waits for it to finish, then cleans up.</p>
+        <p>the whole thing is one .cpp file with no external dependencies. makes it easy to integrate or just use as a
+            reference.</p>
+
+        <hr>
+
+        <h2>Usage</h2>
+        <pre>
 TinyLoad.exe --i app.exe --c
 TinyLoad.exe --i app.exe --o packed.exe --xor --c
 TinyLoad.exe --i game.exe --xor
-</pre>
+        </pre>
 
-    <table border="1" cellpadding="5" cellspacing="0">
-        <tr>
-            <th>Flag</th>
-            <th>What it does</th>
-        </tr>
-        <tr>
-            <td><code>--i &lt;file&gt;</code></td>
-            <td>input executable to pack</td>
-        </tr>
-        <tr>
-            <td><code>--o &lt;file&gt;</code></td>
-            <td>output path, defaults to inputname_packed.exe</td>
-        </tr>
-        <tr>
-            <td><code>--xor</code></td>
-            <td>encrypt payload with rolling XOR, makes static analysis harder</td>
-        </tr>
-        <tr>
-            <td><code>--c</code></td>
-            <td>compress with LZ77</td>
-        </tr>
-    </table>
+        <table border="1" cellpadding="5" cellspacing="0">
+            <tr>
+                <th>Flag</th>
+                <th>What it does</th>
+            </tr>
+            <tr>
+                <td><code>--i &lt;file&gt;</code></td>
+                <td>input executable to pack</td>
+            </tr>
+            <tr>
+                <td><code>--o &lt;file&gt;</code></td>
+                <td>output path, defaults to inputname_packed.exe</td>
+            </tr>
+            <tr>
+                <td><code>--xor</code></td>
+                <td>encrypt payload with rolling XOR, makes static analysis harder</td>
+            </tr>
+            <tr>
+                <td><code>--c</code></td>
+                <td>compress with LZ77</td>
+            </tr>
+        </table>
 
-    <hr>
+        <hr>
 
-    <h2>How compression works</h2>
-    <p>custom hash-chain LZ77 with a 64KB sliding window and deep chain search. uses lazy match evaluation to pick
-        better matches. compression runs on the raw PE first, then XOR is applied on top so patterns in the compressed
-        stream are also hidden from static analysis.</p>
+        <h2>How compression works</h2>
+        <p>custom hash-chain LZ77 with a 64KB sliding window and deep chain search. uses lazy match evaluation to pick
+            better matches. compression runs on the raw PE first, then XOR is applied on top so patterns in the compressed
+            stream are also hidden from static analysis.</p>
 
-    <hr>
+        <hr>
 
-    <h2>Development Blog</h2>
-    <h3>Introducing Morphine: The Virtualization Revolution</h3>
-    <p>In the world of PE packing, the battle lines are constantly shifting. what worked yesterday—simple file-dropping and basic XOR loops—is now trivial for modern heuristic engines and EDRs to flag. to stay ahead, we have to stop playing by the processor's rules.</p>
-    
-    <p>today, we are announcing a fundamental shift in the TinyLoad architecture: <strong>The Morphine VM Engine</strong> (coming in v3).</p>
-
-    <h4>Moving Beyond the Instruction Set</h4>
-    <p>traditional packers rely on native x86/x64 instructions to handle payload decryption. while effective for a time, these patterns are easily "fingerprinted." if an analyst sees a specific loop with a specific XOR constant, they’ve already won.</p>
-    
-    <p><strong>Morphine</strong> changes the game by introducing a <strong>custom bytecode virtual machine</strong> directly into the TinyLoad stub.</p>
-
-    <h4>How Morphine Works</h4>
-    <p>instead of running native assembly, the TinyLoad stub will embed a lightweight interpreter. the logic for decrypting your payload is "lifted" into a custom language that only this specific interpreter understands.</p>
-
-    <ul>
-        <li><strong>Instruction Set Randomization:</strong> every time you pack a file, the "opcodes" are reshuffled.</li>
-        <li><strong>Decoupled Control Flow:</strong> because the logic is virtualized, standard disassemblers like IDA or Ghidra cannot automatically trace the decryption process.</li>
-        <li><strong>In-Memory Purity:</strong> combined with our v2 manual-mapping technology, the payload remains virtualized until the very moment it is executed in-memory.</li>
-    </ul>
-
-    <hr>
-
-    <h2>Download</h2>
-    <p>grab the source on <a href="https://github.com/iamsopotatoe-coder/TinyLoad">GitHub</a> or if your lazy download the latest
-        build: <a href="https://github.com/iamsopotatoe-coder/TinyLoad/releases">releases</a>.</p>
+        <h2>Download</h2>
+        <p>grab the source on <a href="https://github.com/iamsopotatoe-coder/TinyLoad">GitHub</a> or if your lazy download the latest
+            build: <a href="https://github.com/iamsopotatoe-coder/TinyLoad/releases">releases</a>.</p>
+    </div>
 
     <hr>
 
