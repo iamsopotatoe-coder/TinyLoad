@@ -60,6 +60,28 @@ TinyLoad.exe --i game.exe --xor
 
     <hr>
 
+    <h2>Development Blog</h2>
+    <h3>Introducing Morphine: The Virtualization Revolution</h3>
+    <p>In the world of PE packing, the battle lines are constantly shifting. what worked yesterday—simple file-dropping and basic XOR loops—is now trivial for modern heuristic engines and EDRs to flag. to stay ahead, we have to stop playing by the processor's rules.</p>
+    
+    <p>today, we are announcing a fundamental shift in the TinyLoad architecture: <strong>The Morphine VM Engine</strong> (coming in v3).</p>
+
+    <h4>Moving Beyond the Instruction Set</h4>
+    <p>traditional packers rely on native x86/x64 instructions to handle payload decryption. while effective for a time, these patterns are easily "fingerprinted." if an analyst sees a specific loop with a specific XOR constant, they’ve already won.</p>
+    
+    <p><strong>Morphine</strong> changes the game by introducing a <strong>custom bytecode virtual machine</strong> directly into the TinyLoad stub.</p>
+
+    <h4>How Morphine Works</h4>
+    <p>instead of running native assembly, the TinyLoad stub will embed a lightweight interpreter. the logic for decrypting your payload is "lifted" into a custom language that only this specific interpreter understands.</p>
+
+    <ul>
+        <li><strong>Instruction Set Randomization:</strong> every time you pack a file, the "opcodes" are reshuffled.</li>
+        <li><strong>Decoupled Control Flow:</strong> because the logic is virtualized, standard disassemblers like IDA or Ghidra cannot automatically trace the decryption process.</li>
+        <li><strong>In-Memory Purity:</strong> combined with our v2 manual-mapping technology, the payload remains virtualized until the very moment it is executed in-memory.</li>
+    </ul>
+
+    <hr>
+
     <h2>Download</h2>
     <p>grab the source on <a href="https://github.com/iamsopotatoe-coder/TinyLoad">GitHub</a> or if your lazy download the latest
         build: <a href="https://github.com/iamsopotatoe-coder/TinyLoad/releases">releases</a>.</p>
