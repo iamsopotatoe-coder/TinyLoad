@@ -1,4 +1,6 @@
 # TinyLoad
+![Custom VM coming soon!](https://img.shields.io/badge/Custom%20VM-coming%20soon!-blue) ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-success?style=flat-square)
+
 simple PE packer for Windows. compresses and optionally XOR-encrypts executables into a self-extracting stub.
 
 ## how it works
