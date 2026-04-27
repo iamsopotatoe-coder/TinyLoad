@@ -50,6 +50,10 @@ you need at least one of `--xor` or `--c`.
 
 custom LZ77 with hash-chain matching, 64KB sliding window, and lazy evaluation. typically gets decent ratios on PE files since they have a lot of repeated structure. compression runs on the raw input first, then XOR is applied on top so patterns in the compressed stream are also hidden.
 
+Graph: 
+
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/204c43ea-b7a8-4723-ac07-871a83f99bb7" />
+
 ## license
 
 MIT
