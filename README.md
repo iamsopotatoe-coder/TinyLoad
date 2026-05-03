@@ -60,7 +60,7 @@ the cipher itself is a 128-bit stream cipher using rotl/rotr key mixing, run ent
 
 Graph:
 
-<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/e99abb05-9a85-4eb6-bcd6-56b9250c3814" />
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/061a34a8-bb27-4afa-b94f-1d2410ab2c29" />
 
 ## license
 
