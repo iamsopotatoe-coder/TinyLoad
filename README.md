@@ -65,3 +65,8 @@ Graph:
 ## license
 
 MIT
+
+## Sidenotes
+
+- This works on all files i tested it on, if it breaks on some of your files please open an issue to let me know.
+- If you want to suggest any improvements or future updates please open an issue.
