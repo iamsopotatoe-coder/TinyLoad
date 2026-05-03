@@ -1,4 +1,4 @@
-# TinyLoad
+# TinyLoad V3
 ![Custom VM](https://img.shields.io/badge/Custom%20VM-live-brightgreen) ![Better Compression](https://img.shields.io/badge/Better%20Compression-coming%20soon-blue) ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-success?style=flat-square)
 
 simple PE packer for Windows. compresses and encrypts executables with a custom virtual machine into a self-extracting stub.
