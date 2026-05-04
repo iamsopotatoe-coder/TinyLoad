@@ -35,7 +35,7 @@ TinyLoad.exe --i <input> [--o <output>] [--vm] [--c]
 |------|-------------|
 | `--i <file>` | input exe to pack |
 | `--o <file>` | output path (default: `input_packed.exe`) |
-| `--vm` | custom VM encryption with randomized ISA |
+| `--vm` | custom VM encryption |
 | `--c` | LZ77 compression |
 
 ### examples
@@ -71,3 +71,4 @@ MIT
 - This works on all files i tested it on, if it breaks on some of your files please open an issue to let me know.
 - If you want to suggest any improvements or future updates please open an issue.
 - if you use it, a star helps a lot <3
+- Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
