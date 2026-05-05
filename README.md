@@ -1,4 +1,4 @@
-# TinyLoad V3
+# TinyLoad V3.1
 ![Custom VM](https://img.shields.io/badge/Custom%20VM-live-brightgreen) ![Better Compression](https://img.shields.io/badge/Better%20Compression-coming%20soon-blue) ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-success?style=flat-square)
 
 simple PE packer for Windows. compresses and encrypts executables with a custom virtual machine into a self-extracting stub.
@@ -72,3 +72,4 @@ MIT
 - If you want to suggest any improvements or future updates please open an issue.
 - if you use it, a star helps a lot <3
 - Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
+- Tinyload v3.1 fixed some vulnerabilities in the vm, i didnt want to make this update before v4 but it seemed necessary.
