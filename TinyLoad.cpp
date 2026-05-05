@@ -18,16 +18,16 @@ struct Tail {
     DWORD origSz;
     DWORD packSz;
     BYTE flags;
-    BYTE opmap[20];
+    BYTE opmap[32];
     DWORD vmCodeSz;
 };
 #pragma pack(pop)
 
 enum {
     HLT_I, NOP_I, LDI_I, MOV_I, ADD_I, SUB_I, MUL_I,
-    XOR_I, AND_I, OR_I, SHL_I, SHR_I,
-    ADDI_I, XORI_I, ANDI_I,
-    LDB_I, STB_I, CMP_I, JMP_I, JNZ_I,
+    XOR_I, AND_I, OR_I, SHL_I, SHR_I, ROL_I, ROR_I, NOT_I,
+    ADDI_I, XORI_I, ANDI_I, MULI_I, ROLI_I, RORI_I,
+    LDB_I, STB_I, CMP_I, JMP_I, JNZ_I, CALL_I, RET_I,
     NUM_OPS
 };
 
@@ -180,14 +180,22 @@ void vmRun(BYTE* data, uint64_t dataSz, const BYTE* code, size_t codesz, const B
         case OR_I:  { uint8_t d = code[ip++], s = code[ip++]; r[d] |= r[s]; break; }
         case SHL_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] <<= n; break; }
         case SHR_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] >>= n; break; }
+        case ROL_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
+        case ROR_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
+        case NOT_I: { uint8_t reg = code[ip++]; r[reg] = ~r[reg]; break; }
         case ADDI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] += v; break; }
         case XORI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] ^= v; break; }
         case ANDI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] &= v; break; }
+        case MULI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] *= v; break; }
+        case ROLI_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
+        case RORI_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
         case LDB_I: { uint8_t d = code[ip++], b = code[ip++], idx = code[ip++]; r[d] = ((BYTE*)(uintptr_t)r[b])[r[idx]]; break; }
         case STB_I: { uint8_t b = code[ip++], idx = code[ip++], s = code[ip++]; ((BYTE*)(uintptr_t)r[b])[r[idx]] = (BYTE)r[s]; break; }
         case CMP_I: { uint8_t d = code[ip++], a = code[ip++], b2 = code[ip++]; r[d] = r[a] < r[b2] ? 1 : 0; break; }
         case JMP_I: { int32_t off = 0; memcpy(&off, &code[ip], 4); ip = (size_t)((int64_t)(ip + 4) + off); break; }
         case JNZ_I: { uint8_t reg = code[ip++]; int32_t off = 0; memcpy(&off, &code[ip], 4); ip += 4; if (r[reg]) ip = (size_t)((int64_t)ip + off); break; }
+        case CALL_I: { int32_t off = 0; memcpy(&off, &code[ip], 4); r[7] = ip + 4; ip = (size_t)((int64_t)(ip + 4) + off); break; }
+        case RET_I: { ip = (size_t)r[7]; break; }
         }
     }
 }
@@ -203,6 +211,7 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     eOp(bc,enc,LDI_I); eR(bc,2); e64(bc,0);
     eOp(bc,enc,LDI_I); eR(bc,3); e64(bc,key1);
     eOp(bc,enc,LDI_I); eR(bc,4); e64(bc,key2);
+    eOp(bc,enc,LDI_I); eR(bc,5); e64(bc,0x9E3779B97F4A7C15ull);
 
     int loopPos = (int)bc.size();
 
@@ -214,30 +223,31 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     int bodyPos = (int)bc.size();
     { int32_t off = bodyPos - (jnzPatch + 4); memcpy(&bc[jnzPatch], &off, 4); }
 
-    eOp(bc,enc,MOV_I);  eR(bc,5); eR(bc,3);
-    eOp(bc,enc,XOR_I);  eR(bc,5); eR(bc,4);
-    eOp(bc,enc,ANDI_I); eR(bc,5); e64(bc,0xFF);
-
-    eOp(bc,enc,LDB_I); eR(bc,6); eR(bc,0); eR(bc,2);
-    eOp(bc,enc,XOR_I);  eR(bc,6); eR(bc,5);
-    eOp(bc,enc,STB_I); eR(bc,0); eR(bc,2); eR(bc,6);
-
-    eOp(bc,enc,MOV_I); eR(bc,5); eR(bc,3);
-    eOp(bc,enc,SHL_I); eR(bc,5); eR(bc,13);
     eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,3);
-    eOp(bc,enc,SHR_I); eR(bc,6); eR(bc,51);
-    eOp(bc,enc,OR_I);  eR(bc,5); eR(bc,6);
-    eOp(bc,enc,XOR_I); eR(bc,5); eR(bc,4);
+    eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,4);
+    eOp(bc,enc,ADD_I); eR(bc,6); eR(bc,5);
+    eOp(bc,enc,ANDI_I); eR(bc,6); e64(bc,0xFF);
+
+    eOp(bc,enc,LDB_I); eR(bc,8); eR(bc,0); eR(bc,2);
+    eOp(bc,enc,XOR_I); eR(bc,8); eR(bc,6);
+    eOp(bc,enc,NOT_I); eR(bc,8);
+    eOp(bc,enc,STB_I); eR(bc,0); eR(bc,2); eR(bc,8);
+
+    eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,3);
+    eOp(bc,enc,ROL_I); eR(bc,6); eR(bc,11);
+    eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,4);
+    eOp(bc,enc,MOV_I); eR(bc,7); eR(bc,6);
 
     eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,4);
-    eOp(bc,enc,SHR_I); eR(bc,6); eR(bc,7);
-    eOp(bc,enc,MOV_I); eR(bc,7); eR(bc,4);
-    eOp(bc,enc,SHL_I); eR(bc,7); eR(bc,57);
-    eOp(bc,enc,OR_I);  eR(bc,6); eR(bc,7);
+    eOp(bc,enc,ROR_I); eR(bc,6); eR(bc,19);
     eOp(bc,enc,ADD_I); eR(bc,6); eR(bc,3);
-
-    eOp(bc,enc,MOV_I); eR(bc,3); eR(bc,5);
+    eOp(bc,enc,ADD_I); eR(bc,6); eR(bc,5);
     eOp(bc,enc,MOV_I); eR(bc,4); eR(bc,6);
+
+    eOp(bc,enc,MULI_I); eR(bc,5); e64(bc,0x9E3779B97F4A7C15ull);
+    eOp(bc,enc,XOR_I); eR(bc,5); eR(bc,7);
+
+    eOp(bc,enc,MOV_I); eR(bc,3); eR(bc,7);
 
     eOp(bc,enc,ADDI_I); eR(bc,2); e64(bc,1);
 
@@ -249,12 +259,17 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
 }
 
 void vmEncryptPayload(Bytes& pay, uint64_t k1, uint64_t k2) {
+    uint64_t k3 = 0x9E3779B97F4A7C15ull;
     for (size_t i = 0; i < pay.size(); i++) {
-        uint8_t ks = (uint8_t)(k1 ^ k2);
-        pay[i] ^= ks;
-        uint64_t nk1 = ((k1 << 13) | (k1 >> 51)) ^ k2;
-        uint64_t nk2 = ((k2 >> 7)  | (k2 << 57)) + k1;
+        uint8_t b = pay[i];
+        uint8_t ks = (uint8_t)(((k1 ^ k2) + k3) & 0xFF);
+        b ^= ks;
+        b = ~b;
+        pay[i] = b;
+        uint64_t nk1 = ((k1 << 11) | (k1 >> 53)) ^ k2;
+        uint64_t nk2 = ((k2 >> 19) | (k2 << 45)) + k1 + k3;
         k1 = nk1; k2 = nk2;
+        k3 = (k3 * 0x9E3779B97F4A7C15ull) ^ k1;
     }
 }
 
@@ -326,7 +341,7 @@ bool tryRun() {
     DWORD off = *(DWORD*)&blob[blob.size() - 4];
     if (off + sizeof(Tail) > blob.size()) return false;
     Tail* t = (Tail*)&blob[off];
-    if (memcmp(t->sig, "TINYLD3!", 8)) return false;
+    if (memcmp(t->sig, "TINYLD31", 8)) return false;
     if (off + sizeof(Tail) + t->vmCodeSz + t->packSz + 4 != blob.size()) return false;
 
     BYTE* vmCodePtr = (BYTE*)(t + 1);
@@ -417,7 +432,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     DWORD tailOff = (DWORD)result.size();
 
     Tail t;
-    memcpy(t.sig, "TINYLD3!", 8);
+    memcpy(t.sig, "TINYLD31", 8);
     t.origSz = (DWORD)orig.size();
     t.packSz = (DWORD)pay.size();
     t.flags = flags;
@@ -449,7 +464,7 @@ int main(int argc, char* argv[]) {
         else if (a == "--c") comp = true;
     }
     if (in.empty()) {
-        puts("TinyLoad v3\n  --i <file>  --o <file>  --vm  --c");
+        puts("TinyLoad v3.1\nUsage: TinyLoad.exe --i <input> [--o <output>] [--vm] [--c]\nFlags:\n  --i <file>   Input exe to pack\n  --o <file>   Output path (default: input_packed.exe)\n  --vm         Custom VM encryption\n  --c          LZ77 compression\nExamples:\n  TinyLoad.exe --i myapp.exe --c\n  TinyLoad.exe --i myapp.exe --o packed.exe --vm --c\n  TinyLoad.exe --i myapp.exe --vm\nNote: You need at least one of --vm or --c.");
         return 1;
     }
     if (out.empty()) {
