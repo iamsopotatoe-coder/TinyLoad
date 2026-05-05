@@ -1,4 +1,4 @@
-// Tinyload v3, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
+// Tinyload v3.1, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
 #include <windows.h>
 #include <vector>
 #include <string>
