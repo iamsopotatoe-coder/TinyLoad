@@ -1,3 +1,6 @@
+
+<img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
+
 # TinyLoad V3.1
 ![Custom VM](https://img.shields.io/badge/Custom%20VM-live-brightgreen) ![Better Compression](https://img.shields.io/badge/Better%20Compression-coming%20soon-blue) ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-success?style=flat-square)
 
