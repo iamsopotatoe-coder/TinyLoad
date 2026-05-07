@@ -149,6 +149,7 @@ Bytes lzUnpack(const Bytes& in) {
         BYTE flag = in[p++];
         for (int bit = 0; bit < 8 && p < in.size() && out.size() < sz; bit++) {
             if (flag & (1 << bit)) {
+                if (p + 2 >= in.size()) break;
                 int dist = in[p] | (in[p + 1] << 8);
                 int len = (int)in[p + 2] + 3;
                 p += 3;
@@ -161,7 +162,7 @@ Bytes lzUnpack(const Bytes& in) {
 }
 
 void vmRun(BYTE* data, uint64_t dataSz, const BYTE* code, size_t codesz, const BYTE* dec) {
-    uint64_t r[8] = {};
+    uint64_t r[9] = {};
     r[0] = (uint64_t)(uintptr_t)data;
     r[1] = dataSz;
     size_t ip = 0;
@@ -178,17 +179,17 @@ void vmRun(BYTE* data, uint64_t dataSz, const BYTE* code, size_t codesz, const B
         case XOR_I: { uint8_t d = code[ip++], s = code[ip++]; r[d] ^= r[s]; break; }
         case AND_I: { uint8_t d = code[ip++], s = code[ip++]; r[d] &= r[s]; break; }
         case OR_I:  { uint8_t d = code[ip++], s = code[ip++]; r[d] |= r[s]; break; }
-        case SHL_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] <<= n; break; }
-        case SHR_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] >>= n; break; }
-        case ROL_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
-        case ROR_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
+        case SHL_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; r[reg] <<= n; break; }
+        case SHR_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; r[reg] >>= n; break; }
+        case ROL_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; if (n) r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
+        case ROR_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; if (n) r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
         case NOT_I: { uint8_t reg = code[ip++]; r[reg] = ~r[reg]; break; }
         case ADDI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] += v; break; }
         case XORI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] ^= v; break; }
         case ANDI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] &= v; break; }
         case MULI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] *= v; break; }
-        case ROLI_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
-        case RORI_I: { uint8_t reg = code[ip++], n = code[ip++]; r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
+        case ROLI_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; if (n) r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
+        case RORI_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; if (n) r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
         case LDB_I: { uint8_t d = code[ip++], b = code[ip++], idx = code[ip++]; r[d] = ((BYTE*)(uintptr_t)r[b])[r[idx]]; break; }
         case STB_I: { uint8_t b = code[ip++], idx = code[ip++], s = code[ip++]; ((BYTE*)(uintptr_t)r[b])[r[idx]] = (BYTE)r[s]; break; }
         case CMP_I: { uint8_t d = code[ip++], a = code[ip++], b2 = code[ip++]; r[d] = r[a] < r[b2] ? 1 : 0; break; }
@@ -474,3 +475,4 @@ int main(int argc, char* argv[]) {
     if (!vm && !comp) { puts("need --vm and/or --c"); return 1; }
     return pack(in, out, vm, comp) ? 0 : 1;
 }
+
