@@ -57,7 +57,7 @@ custom LZ77 with hash-chain matching, 64KB sliding window, and lazy evaluation. 
 
 ## vm encryption
 
-v3 replaces XOR with a custom 30-opcode virtual machine. the opcode table is randomly shuffled at pack time — every packed file gets a different ISA. the decryption logic is stored as bytecode with the keys embedded as immediates directly in the program. an analyst has to reverse the interpreter before they can even start on the payload.
+v3 replaces XOR with a custom 32-opcode virtual machine. the opcode table is randomly shuffled at pack time — every packed file gets a different ISA. the decryption logic is stored as bytecode with the keys embedded as immediates directly in the program. an analyst has to reverse the interpreter before they can even start on the payload.
 
 the cipher itself is a 128-bit stream cipher using rotl/rotr key mixing, run entirely through the VM so there's no native decryption loop to fingerprint.
 
