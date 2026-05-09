@@ -76,4 +76,4 @@ MIT
 - if you use it, a star helps a lot <3
 - Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
 - Tinyload v3.1 fixed some vulnerabilities in the vm, i didnt want to make this update before v4 but it seemed necessary.
-- Please do not use this tool to pack any malicious software or malware, it is intended to be used for lawful and legitimate purposes.
+- Please do not use this tool to pack any malicious software or malware, it is intended to be used for legitimate purposes.
