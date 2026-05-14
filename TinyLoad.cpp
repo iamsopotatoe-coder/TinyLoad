@@ -1,4 +1,4 @@
-// Tinyload v3.1, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
+// Tinyload v4.0, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
 #include <windows.h>
 #include <vector>
 #include <string>
@@ -11,6 +11,14 @@
 #include <numeric>
 
 using Bytes = std::vector<BYTE>;
+
+bool isDebugged() {
+    if (IsDebuggerPresent()) return true;
+    BOOL remote = FALSE;
+    CheckRemoteDebuggerPresent(GetCurrentProcess(), &remote);
+    if (remote) return true;
+    return false;
+}
 
 #pragma pack(push, 1)
 struct Tail {
@@ -214,6 +222,15 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     eOp(bc,enc,LDI_I); eR(bc,4); e64(bc,key2);
     eOp(bc,enc,LDI_I); eR(bc,5); e64(bc,0x9E3779B97F4A7C15ull);
 
+    eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0x1337);
+    eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,0x1338);
+    eOp(bc,enc,CMP_I); eR(bc,8); eR(bc,6); eR(bc,7);
+    eOp(bc,enc,JNZ_I); eR(bc,8);
+    int opqPatch = (int)bc.size(); e32(bc, 0); // Jumps over if true
+    eOp(bc,enc,HLT_I); // Trap if jumped
+    int opqEnd = (int)bc.size();
+    { int32_t off = opqEnd - (opqPatch + 4); memcpy(&bc[opqPatch], &off, 4); }
+
     int loopPos = (int)bc.size();
 
     eOp(bc,enc,CMP_I); eR(bc,7); eR(bc,2); eR(bc,1);
@@ -335,6 +352,7 @@ bool runInMem(const Bytes& data) {
 }
 
 bool tryRun() {
+    if (isDebugged()) return false;
     char self[MAX_PATH];
     GetModuleFileNameA(NULL, self, MAX_PATH);
     Bytes blob = loadFile(self);
@@ -342,7 +360,7 @@ bool tryRun() {
     DWORD off = *(DWORD*)&blob[blob.size() - 4];
     if (off + sizeof(Tail) > blob.size()) return false;
     Tail* t = (Tail*)&blob[off];
-    if (memcmp(t->sig, "TINYLD31", 8)) return false;
+    if (memcmp(t->sig, "TINYLD40", 8)) return false;
     if (off + sizeof(Tail) + t->vmCodeSz + t->packSz + 4 != blob.size()) return false;
 
     BYTE* vmCodePtr = (BYTE*)(t + 1);
@@ -384,6 +402,20 @@ void cloneRes(const std::string& src, const std::string& dst) {
         EndUpdateResourceA(h, FALSE);
     }
     FreeLibrary(mod);
+}
+
+void scrambleSections(Bytes& data) {
+    if (data.size() < sizeof(IMAGE_DOS_HEADER)) return;
+    IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)data.data();
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return;
+    IMAGE_NT_HEADERS64* nt = (IMAGE_NT_HEADERS64*)(data.data() + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return;
+    IMAGE_SECTION_HEADER* sect = IMAGE_FIRST_SECTION(nt);
+    const char* names[] = {".text", ".data", ".rdata", ".bss", ".idata"};
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
+        memset(sect[i].Name, 0, 8);
+        strncpy((char*)sect[i].Name, names[i % 5], 8);
+    }
 }
 
 bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
@@ -433,7 +465,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     DWORD tailOff = (DWORD)result.size();
 
     Tail t;
-    memcpy(t.sig, "TINYLD31", 8);
+    memcpy(t.sig, "TINYLD40", 8);
     t.origSz = (DWORD)orig.size();
     t.packSz = (DWORD)pay.size();
     t.flags = flags;
@@ -447,6 +479,8 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     result.push_back((tailOff >> 8) & 0xFF);
     result.push_back((tailOff >> 16) & 0xFF);
     result.push_back((tailOff >> 24) & 0xFF);
+
+    scrambleSections(result);
 
     if (!saveFile(out, result)) return false;
     printf("-> %s (%zu bytes)\n", out.c_str(), result.size());
@@ -465,7 +499,7 @@ int main(int argc, char* argv[]) {
         else if (a == "--c") comp = true;
     }
     if (in.empty()) {
-        puts("TinyLoad v3.1\nUsage: TinyLoad.exe --i <input> [--o <output>] [--vm] [--c]\nFlags:\n  --i <file>   Input exe to pack\n  --o <file>   Output path (default: input_packed.exe)\n  --vm         Custom VM encryption\n  --c          LZ77 compression\nExamples:\n  TinyLoad.exe --i myapp.exe --c\n  TinyLoad.exe --i myapp.exe --o packed.exe --vm --c\n  TinyLoad.exe --i myapp.exe --vm\nNote: You need at least one of --vm or --c.");
+        puts("TinyLoad v4.0\nUsage: TinyLoad.exe --i <input> [--o <output>] [--vm] [--c]\nFlags:\n  --i <file>   Input exe to pack\n  --o <file>   Output path (default: input_packed.exe)\n  --vm         Custom VM encryption\n  --c          LZ77 compression\nExamples:\n  TinyLoad.exe --i myapp.exe --c\n  TinyLoad.exe --i myapp.exe --o packed.exe --vm --c\n  TinyLoad.exe --i myapp.exe --vm\nNote: You need at least one of --vm or --c.");
         return 1;
     }
     if (out.empty()) {
