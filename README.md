@@ -1,7 +1,7 @@
 
 <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
-# TinyLoad V3.1
+# TinyLoad V4.0
 ![Custom VM](https://img.shields.io/badge/Custom%20VM-live-brightgreen) ![Better Compression](https://img.shields.io/badge/Better%20Compression-coming%20soon-blue) ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-success?style=flat-square)
 
 simple PE packer for Windows. compresses and encrypts executables with a custom virtual machine into a self-extracting stub.
@@ -53,17 +53,19 @@ you need at least one of `--vm` or `--c`.
 
 ## compression
 
-custom LZ77 with hash-chain matching, 64KB sliding window, and lazy evaluation. typically gets decent ratios on PE files since they have a lot of repeated structure. compression runs on the raw input first, then VM encryption is applied on top so patterns in the compressed stream are also hidden. (we wanna improve this in v4)
+custom LZ77 with hash-chain matching, 64KB sliding window, and lazy evaluation. typically gets decent ratios on PE files since they have a lot of repeated structure. compression runs on the raw input first, then VM encryption is applied on top so patterns in the compressed stream are also hidden.
 
 ## vm encryption
 
-v3 replaces XOR with a custom 32-opcode virtual machine. the opcode table is randomly shuffled at pack time — every packed file gets a different ISA. the decryption logic is stored as bytecode with the keys embedded as immediates directly in the program. an analyst has to reverse the interpreter before they can even start on the payload.
+v4 uses a custom 32-opcode virtual machine. the opcode table is randomly shuffled at pack time — every packed file gets a different ISA. the decryption logic is stored as bytecode with the keys embedded as immediates directly in the program.
+
+v4 introduces Opaque Predicates into the VM to stall static analysis, and PE Section Scrambling to trick auto-unpackers into missing the payload overlay. It also includes basic anti-debug checks (IsDebuggerPresent, CheckRemoteDebuggerPresent) directly integrated into the loader stub.
 
 the cipher itself is a 128-bit stream cipher using rotl/rotr key mixing, run entirely through the VM so there's no native decryption loop to fingerprint.
 
 Graph:
 
-<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/061a34a8-bb27-4afa-b94f-1d2410ab2c29" />
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/861515a5-2f09-4205-91b3-252380ca69b9" />
 
 ## license
 
@@ -75,5 +77,5 @@ MIT
 - If you want to suggest any improvements or future updates please open an issue.
 - if you use it, a star helps a lot <3
 - Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
-- Tinyload v3.1 fixed some vulnerabilities in the vm, i didnt want to make this update before v4 but it seemed necessary.
+- Tinyload v4.0 adds anti-debugging, VM opaque predicates, and PE section scrambling 
 - Please do not use this tool to pack any malicious software or malware, it is intended to be used for legitimate purposes.
