@@ -45,102 +45,28 @@
             <p><a href="#home">← Back to Home</a></p>
             <h2>Development Blog</h2>
 
-            <h3>v3 is out — Morphine VM shipped</h3>
+            <h3>v4 is out — Protection Updates</h3>
             <p>
-                v3 is live. the Morphine VM engine we teased is now fully
-                implemented and shipping in the main binary.
-            </p>
-
-            <p>
-                the old XOR is gone. every packed file now runs through a custom
-                20-opcode virtual machine with a randomly shuffled instruction
-                set baked in at pack time. no two packed files share the same
-                ISA.
+                v4 is finally here. We focused heavily on anti-analysis and hardening to make TinyLoad practically invisible to standard debuggers and automated unpackers.
             </p>
 
             <h4>what changed</h4>
             <ul>
-                <li><strong>--xor is gone.</strong> replaced with --vm.</li>
+                <li><strong>Anti-Debugging integration:</strong> Automatically detect debuggers (`IsDebuggerPresent` and `CheckRemoteDebuggerPresent`) and abort payload execution before decryption even starts.</li>
                 <li>
-                    <strong>custom VM interpreter</strong> embedded in the stub
-                    — 20 opcodes, shuffled randomly every build.
+                    <strong>VM Opaque Predicates:</strong> Inserted fake branching logic into the custom VM. If you try to reverse or manually alter the execution flow during debugging, it drops into a trap (`HLT`) and halts.
                 </li>
                 <li>
-                    <strong>128-bit stream cipher</strong> via rotl/rotr key
-                    mixing, executed entirely as VM bytecode. no native
-                    decryption loop to fingerprint.
+                    <strong>PE Section Scrambling:</strong> Instead of having obvious packer-specific structural anomalies, TinyLoad v4 intercepts the executable before writing it to disk and rewrites all the section headers (`.text`, `.data`, `.rdata`, etc.) using generic names, blending perfectly into the background and avoiding automated packer detection.
                 </li>
-                <li>
-                    <strong>keys are embedded as immediates</strong> inside the
-                    bytecode program itself — different every build.
-                </li>
-                <li><strong>still one .cpp file, zero deps.</strong></li>
             </ul>
 
             <h4>why this matters</h4>
             <p>
-                with XOR, an analyst opens a debugger, sets a breakpoint on
-                VirtualAlloc, runs the stub, and dumps the decrypted payload.
-                takes about 30 seconds. the decryption loop is native x86 and
-                trivially recognizable.
+                A virtual machine is great for hiding the decryption routine, but it doesn't help if an analyst can just step through it or dump the unpacked payload from memory right before execution. The new anti-debugging mechanisms prevent them from even starting the debugging process.
             </p>
-
             <p>
-                with the VM, they first have to reverse the interpreter to
-                figure out what the opcodes even mean — and those opcodes are
-                different every build so they can't reuse their work. it's not
-                unbreakable but it's a completely different class of problem.
-            </p>
-
-            <hr />
-
-            <h3>what's next — better compression</h3>
-            <p>
-                the current LZ77 is good but it's general purpose. PE files have
-                structure that a general compressor doesn't know about —
-                sections, imports, relocation tables, repeated patterns across
-                the header. a purpose-built PE-aware compressor could exploit
-                all of that.
-            </p>
-
-            <p>
-                the plan for v4 is a
-                <strong>PE-aware compression pass</strong> that runs before
-                LZ77. instead of feeding the raw binary straight into the
-                sliding window, it would pre-process the PE structure first —
-                delta-encoding relocation entries, separating code and data
-                sections, stripping and restoring the header separately. all of
-                that creates streams with way more local repetition, which LZ77
-                (or any follow-up entropy coder) can then crush much harder.
-            </p>
-
-            <p>
-                on top of that we're looking at swapping the backend from LZ77
-                to <strong>LZMA or a custom context-mixing stage</strong>. LZ77
-                is fast but leaves a lot on the table for highly structured
-                data. a context model that understands instruction boundaries
-                could get significantly better ratios on x86/x64 code sections.
-            </p>
-
-            <p>
-                no ETA yet. the VM work came first because protection matters
-                more than size. but this is next.
-            </p>
-
-            <hr />
-
-            <h3>
-                Introducing Morphine: The Virtualization Revolution
-                <small
-                    style="color: #8b949e; font-size: 13px; font-weight: normal"
-                    >[deprecated — superseded by v3 is out]</small
-                >
-            </h3>
-            <p style="color: #8b949e">
-                <em
-                    >this post was written before v3 shipped. kept for
-                    history.</em
-                >
+                The section scrambling completely breaks automated tools that rely on specific packer signatures, forcing analysts to manually reverse the VM just to figure out where the payload actually lives.
             </p>
         </div>
 
@@ -208,12 +134,11 @@ TinyLoad.exe --i game.exe --vm
 
             <h2>How VM encryption works</h2>
             <p>
-                a custom 20-opcode VM interpreter is embedded in the stub. at
+                a custom 32-opcode VM interpreter is embedded in the stub. at
                 pack time the opcode table is randomly shuffled — so every
                 packed file has a different instruction set. the decryption
                 program is stored as bytecode with 128-bit keys embedded as
-                immediate values. an analyst has to reverse the interpreter
-                before they can even start on the payload.
+                immediate values. v4 also introduces opaque predicates to the VM execution flow, injecting fake traps to halt analysis. an analyst has to completely reverse the interpreter and dodge the traps before they can even start on the payload.
             </p>
 
             <hr />
