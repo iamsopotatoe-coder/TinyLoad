@@ -43,6 +43,10 @@ TinyLoad.exe --i <input> [--o <output>] [--vm] [--c]
 
 ### examples
 
+<img width="800" height="111" alt="demo" src="https://github.com/user-attachments/assets/f6e9f863-27ef-4398-9450-d060af753931" />
+
+
+
 ```
 TinyLoad.exe --i myapp.exe --c
 TinyLoad.exe --i myapp.exe --o packed.exe --vm --c
