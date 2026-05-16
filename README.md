@@ -8,7 +8,7 @@ simple PE packer for Windows. compresses and encrypts executables with a custom 
 
 ## how it works
 
-TinyLoad appends your compressed payload to a copy of itself. when the packed exe runs it spins up a custom VM interpreter, executes the decryption bytecode against the payload, then loads and runs it directly in RAM.
+TinyLoad appends your compressed payload to a copy of itself. when the packed exe runs it uses a custom VM interpreter, executes the decryption bytecode against the payload, then loads and runs it directly in RAM.
 
 every time you pack a file the VM opcodes are randomly shuffled and baked into the stub — so every packed file speaks a different instruction set. standard disassemblers can't auto-trace the decryption without reversing the interpreter first.
 
