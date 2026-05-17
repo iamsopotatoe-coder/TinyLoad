@@ -2,7 +2,9 @@
 <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
 # TinyLoad V4.0
-![Custom VM](https://img.shields.io/badge/Custom%20VM-live-brightgreen) ![v4.0!](https://img.shields.io/badge/version-v4.0!-ff69b4) ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-success?style=flat-square)
+![Custom VM](https://img.shields.io/badge/Custom%20VM-Live-7c3aed?style=flat&logo=ghost&logoColor=white&labelColor=0d0d0d)
+![Version](https://img.shields.io/badge/version-v4.0-e84393?style=flat&logo=cplusplus&logoColor=white&labelColor=0d0d0d)
+![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-2ed573?style=flat&logo=checkmarx&logoColor=white)
 
 simple PE packer for Windows. compresses and encrypts executables with a custom virtual machine into a self-extracting stub.
 
@@ -83,3 +85,4 @@ MIT
 - Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
 - Tinyload v4.0 adds anti-debugging, VM opaque predicates, and PE section scrambling 
 - Please do not use this tool to pack any malicious software or malware, it is intended to be used for legitimate purposes.
+
