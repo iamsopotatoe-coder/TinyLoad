@@ -1,4 +1,4 @@
-// Tinyload v4.0, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
+// Tinyload v5.0, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
 #include <windows.h>
 #include <vector>
 #include <string>
@@ -11,6 +11,47 @@
 #include <numeric>
 
 using Bytes = std::vector<BYTE>;
+
+// stub wrappers
+static FARPROC g_Real_GetModuleHandleA;
+static FARPROC g_Real_GetProcAddress;
+static FARPROC g_Real_ExitProcess;
+static FARPROC g_Real_VirtualAlloc;
+
+static HMODULE WINAPI Stub_GetModuleHandleA(LPCSTR n) {
+    return ((decltype(&GetModuleHandleA))g_Real_GetModuleHandleA)(n);
+}
+static FARPROC WINAPI Stub_GetProcAddress(HMODULE m, LPCSTR n) {
+    return ((decltype(&GetProcAddress))g_Real_GetProcAddress)(m, n);
+}
+static void WINAPI Stub_ExitProcess(UINT c) {
+    ((decltype(&ExitProcess))g_Real_ExitProcess)(c);
+}
+static LPVOID WINAPI Stub_VirtualAlloc(LPVOID a, SIZE_T s, DWORD t, DWORD p) {
+    return ((decltype(&VirtualAlloc))g_Real_VirtualAlloc)(a, s, t, p);
+}
+
+// encrypted strings
+struct StubHook { const BYTE* dll; uint8_t dllLen; const BYTE* name; uint8_t nameLen; uint8_t key; FARPROC* realStore; FARPROC wrapper; };
+static const BYTE _ed_k32[] = {0x3A,0x37,0x21,0x3A,0x30,0x3A,0x64,0x6A,0x77,0x3E,0x37,0x30};
+static const BYTE _ed_gmha[] = {0x70,0x5D,0x4D,0x77,0x54,0x58,0x48,0x52,0x5A,0x08,0x20,0x2C,0x27,0x28,0x20,0x07};
+static const BYTE _ed_gpa[] = {0x06,0x27,0x37,0x14,0x37,0x29,0x24,0x09,0x2D,0x2E,0x39,0x29,0x3E,0x3D};
+static const BYTE _ed_ep[] = {0x66,0x5C,0x4C,0x52,0x77,0x5A,0x46,0x49,0x4E,0x5F,0x5E};
+static const BYTE _ed_va[] = {0x4F,0x73,0x69,0x68,0x68,0x7F,0x73,0x61,0x4D,0x4E,0x4C,0x47};
+static const BYTE _ed_sig[] = {0x02,0x1E,0x16,0x00,0x16,0x1F,0x69,0x6D};
+static StubHook g_hooks[] = {
+    {_ed_k32,12, _ed_gmha,16, 0x37, &g_Real_GetModuleHandleA, (FARPROC)Stub_GetModuleHandleA},
+    {_ed_k32,12, _ed_gpa, 14, 0x41, &g_Real_GetProcAddress,    (FARPROC)Stub_GetProcAddress},
+    {_ed_k32,12, _ed_ep,   11, 0x23, &g_Real_ExitProcess,       (FARPROC)Stub_ExitProcess},
+    {_ed_k32,12, _ed_va,   12, 0x19, &g_Real_VirtualAlloc,      (FARPROC)Stub_VirtualAlloc},
+};
+static int g_hookCount = sizeof(g_hooks) / sizeof(g_hooks[0]);
+
+// xor decrypt
+static char* sdec2(char* buf, const BYTE* enc, size_t n, uint8_t k) {
+    for (size_t i = 0; i < n; i++) buf[i] = enc[i] ^ (uint8_t)(k + i);
+    buf[n] = 0; return buf;
+}
 
 bool isDebugged() {
     // go away windbg
@@ -39,6 +80,57 @@ enum {
     LDB_I, STB_I, CMP_I, JMP_I, JNZ_I, CALL_I, RET_I,
     NUM_OPS
 };
+
+// per-file opmap key
+static void xorOpmap(BYTE* opmap, const Tail& t, const BYTE* vmCode, const BYTE* pay) {
+    uint32_t h = 0x811C9DC5u;
+    auto feed = [&](uint8_t b) { h ^= b; h *= 0x01000193u; };
+    for (int i = 0; i < 4; i++) {
+        feed((uint8_t)(t.origSz >> (i * 8)));
+        feed((uint8_t)(t.packSz >> (i * 8)));
+        feed((uint8_t)(t.vmCodeSz >> (i * 8)));
+    }
+    DWORD vmLim = t.vmCodeSz < 32 ? t.vmCodeSz : 32;
+    if (vmCode) for (DWORD i = 0; i < vmLim; i++) feed(vmCode[i]);
+    DWORD payLim = t.packSz < 32 ? t.packSz : 32;
+    if (pay) for (DWORD i = 0; i < payLim; i++) feed(pay[i]);
+    for (int i = 0; i < NUM_OPS; i++) {
+        feed((uint8_t)i);
+        opmap[i] ^= (uint8_t)((h >> 24) ^ (h >> 16) ^ (h >> 8) ^ h);
+    }
+}
+
+// dead code
+__attribute__((used)) static DWORD dead_crc32(const BYTE* d, size_t n) {
+    DWORD c = 0xFFFFFFFF;
+    for (size_t i = 0; i < n; i++) {
+        c ^= d[i];
+        for (int j = 0; j < 8; j++) c = (c >> 1) ^ (0xEDB88320 & -(c & 1));
+    }
+    return ~c;
+}
+__attribute__((used)) static bool dead_checkBP() {
+    // alt debug check
+    BYTE* peb = (BYTE*)__readgsqword(0x60);
+    return peb && *(peb + 2);
+}
+__attribute__((used)) static void dead_scramble(char* b, size_t n, DWORD s) {
+    for (size_t i = 0; i < n; i++) {
+        s = s * 1103515245 + 12345;
+        b[i] ^= (char)(s >> 16);
+    }
+}
+__attribute__((used)) static int dead_strlen_safe(const char* s, int max) {
+    int i = 0;
+    while (s && i < max && s[i]) i++;
+    return i;
+}
+__attribute__((used)) static bool dead_isPe(const BYTE* d, size_t n) {
+    if (n < 64) return false;
+    if (d[0] != 'M' || d[1] != 'Z') return false;
+    DWORD pe = *(DWORD*)(d + 0x3C);
+    return pe < n && *(DWORD*)(d + pe) == 0x00004550;
+}
 
 Bytes loadFile(const std::string& p) {
     std::ifstream f(p, std::ios::binary | std::ios::ate);
@@ -226,6 +318,8 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     eOp(bc,enc,LDI_I); eR(bc,3); e64(bc,key1);
     eOp(bc,enc,LDI_I); eR(bc,4); e64(bc,key2);
     eOp(bc,enc,LDI_I); eR(bc,5); e64(bc,0x9E3779B97F4A7C15ull); // φ
+    eOp(bc,enc,NOP_I); // junk
+    eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,6); // junk
 
     // coffee before cream
     eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0xCAFE);
@@ -237,6 +331,27 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     int opqEnd = (int)bc.size();
     { int32_t off = opqEnd - (opqPatch + 4); memcpy(&bc[opqPatch], &off, 4); }
 
+    // xor-self → 0
+    eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0xDEADBEEFCAFEBABEull);
+    eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,6);
+    eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,1);
+    eOp(bc,enc,CMP_I); eR(bc,8); eR(bc,6); eR(bc,7);
+    eOp(bc,enc,JNZ_I); eR(bc,8);
+    int opq2Patch = (int)bc.size(); e32(bc, 0);
+    eOp(bc,enc,HLT_I);
+    int opq2End = (int)bc.size();
+    { int32_t off = opq2End - (opq2Patch + 4); memcpy(&bc[opq2Patch], &off, 4); }
+
+    // 0x1337 < 0xBEEF
+    eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0x1337);
+    eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,0xBEEF);
+    eOp(bc,enc,CMP_I); eR(bc,8); eR(bc,6); eR(bc,7);
+    eOp(bc,enc,JNZ_I); eR(bc,8);
+    int opq3Patch = (int)bc.size(); e32(bc, 0);
+    eOp(bc,enc,HLT_I);
+    int opq3End = (int)bc.size();
+    { int32_t off = opq3End - (opq3Patch + 4); memcpy(&bc[opq3Patch], &off, 4); }
+
     int loopPos = (int)bc.size();
 
     eOp(bc,enc,CMP_I); eR(bc,7); eR(bc,2); eR(bc,1);
@@ -247,22 +362,35 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     int bodyPos = (int)bc.size();
     { int32_t off = bodyPos - (jnzPatch + 4); memcpy(&bc[jnzPatch], &off, 4); }
 
+    // 0 < ~0
+    eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0);
+    eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,0xFFFFFFFFFFFFFFFFull);
+    eOp(bc,enc,CMP_I); eR(bc,8); eR(bc,6); eR(bc,7);
+    eOp(bc,enc,JNZ_I); eR(bc,8);
+    int opq4Patch = (int)bc.size(); e32(bc, 0);
+    eOp(bc,enc,HLT_I);
+    int opq4End = (int)bc.size();
+    { int32_t off = opq4End - (opq4Patch + 4); memcpy(&bc[opq4Patch], &off, 4); }
+
     // keystream
     eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,3);
     eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,4);
     eOp(bc,enc,ADD_I); eR(bc,6); eR(bc,5);
     eOp(bc,enc,ANDI_I); eR(bc,6); e64(bc,0xFF);
+    eOp(bc,enc,NOP_I); // junk
 
     eOp(bc,enc,LDB_I); eR(bc,8); eR(bc,0); eR(bc,2);
     eOp(bc,enc,XOR_I); eR(bc,8); eR(bc,6);
     eOp(bc,enc,NOT_I); eR(bc,8);
     eOp(bc,enc,STB_I); eR(bc,0); eR(bc,2); eR(bc,8);
+    eOp(bc,enc,MOV_I); eR(bc,8); eR(bc,8); // junk
 
     // key mixing
     eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,3);
     eOp(bc,enc,ROL_I); eR(bc,6); eR(bc,11);
     eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,4);
     eOp(bc,enc,MOV_I); eR(bc,7); eR(bc,6);
+    eOp(bc,enc,ROL_I); eR(bc,8); eR(bc,0); // junk
 
     eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,4);
     eOp(bc,enc,ROR_I); eR(bc,6); eR(bc,19);
@@ -272,6 +400,7 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
 
     eOp(bc,enc,MULI_I); eR(bc,5); e64(bc,0x9E3779B97F4A7C15ull);
     eOp(bc,enc,XOR_I); eR(bc,5); eR(bc,7);
+    eOp(bc,enc,ADDI_I); eR(bc,6); e64(bc,0); // junk
 
     eOp(bc,enc,MOV_I); eR(bc,3); eR(bc,7);
 
@@ -346,14 +475,33 @@ bool runInMem(const Bytes& data) {
                         thunk->u1.Function = (size_t)GetProcAddress(mod, (char*)(orig->u1.Ordinal & 0xFFFF));
                     } else {
                         auto* name = (IMAGE_IMPORT_BY_NAME*)((BYTE*)base + orig->u1.AddressOfData);
-                        thunk->u1.Function = (size_t)GetProcAddress(mod, name->Name);
+                        FARPROC real = GetProcAddress(mod, name->Name);
+                        // hook match
+                        const char* dllName = (const char*)((BYTE*)base + imp->Name);
+                        FARPROC hook = nullptr;
+                        char dbuf[32], nbuf[64];
+                        for (int h = 0; h < g_hookCount; h++) {
+                            sdec2(dbuf, g_hooks[h].dll, g_hooks[h].dllLen, g_hooks[h].key);
+                            sdec2(nbuf, g_hooks[h].name, g_hooks[h].nameLen, g_hooks[h].key);
+                            if (!_stricmp(dllName, dbuf) && !strcmp(name->Name, nbuf)) {
+                                *g_hooks[h].realStore = real;
+                                hook = g_hooks[h].wrapper;
+                                break;
+                            }
+                        }
+                        thunk->u1.Function = hook ? (size_t)hook : (size_t)real;
                     }
                     thunk++;
                     orig++;
                 }
             }
+            // kill recovery
+            imp->OriginalFirstThunk = 0;
+            imp->Name = 0;
             imp++;
         }
+        nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = 0;
+        nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = 0;
     }
     using EntryPoint = void(WINAPI*)();
     EntryPoint entry = (EntryPoint)((BYTE*)base + nt->OptionalHeader.AddressOfEntryPoint);
@@ -372,7 +520,8 @@ bool tryRun() {
     DWORD off = *(DWORD*)&blob[blob.size() - 4];
     if (off + sizeof(Tail) > blob.size()) return false;
     Tail* t = (Tail*)&blob[off];
-    if (memcmp(t->sig, "TINYLD40", 8)) return false;
+    char sigbuf[9];
+    if (memcmp(t->sig, sdec2(sigbuf, _ed_sig, 8, 0x56), 8)) return false;
     if ((uint64_t)off + sizeof(Tail) + (uint64_t)t->vmCodeSz + (uint64_t)t->packSz + 4 != blob.size()) return false;
 
     BYTE* vmCodePtr = (BYTE*)(t + 1);
@@ -381,6 +530,8 @@ bool tryRun() {
     Bytes pay(payPtr, payPtr + t->packSz);
 
     if (t->flags & 2) {
+        // unscramble opmap
+        xorOpmap(t->opmap, *t, vmCodePtr, payPtr);
         vmRun(pay.data(), pay.size(), vmCodePtr, t->vmCodeSz, t->opmap);
     }
     if (t->flags & 1) {
@@ -479,12 +630,15 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     DWORD tailOff = (DWORD)result.size();
 
     Tail t;
-    memcpy(t.sig, "TINYLD40", 8);
+    char sigbuf[9];
+    memcpy(t.sig, sdec2(sigbuf, _ed_sig, 8, 0x56), 8);
     t.origSz = (DWORD)orig.size();
     t.packSz = (DWORD)pay.size();
     t.flags = flags;
-    memcpy(t.opmap, opmap_dec, NUM_OPS);
     t.vmCodeSz = (DWORD)vmCode.size();
+    memcpy(t.opmap, opmap_dec, NUM_OPS);
+    // scramble opmap
+    xorOpmap(t.opmap, t, vmCode.empty() ? nullptr : vmCode.data(), pay.data());
 
     result.insert(result.end(), (BYTE*)&t, (BYTE*)&t + sizeof(t));
     if (!vmCode.empty()) result.insert(result.end(), vmCode.begin(), vmCode.end());
@@ -513,7 +667,7 @@ int main(int argc, char* argv[]) {
         else if (a == "--c") comp = true;
     }
     if (in.empty()) {
-        puts("TinyLoad v4.0\nUsage: TinyLoad.exe --i <input> [--o <output>] [--vm] [--c]\nFlags:\n  --i <file>   Input exe to pack\n  --o <file>   Output path (default: input_packed.exe)\n  --vm         Custom VM encryption\n  --c          LZ77 compression\nExamples:\n  TinyLoad.exe --i myapp.exe --c\n  TinyLoad.exe --i myapp.exe --o packed.exe --vm --c\n  TinyLoad.exe --i myapp.exe --vm\nNote: You need at least one of --vm or --c.");
+        puts("TinyLoad v5.0\nUsage: TinyLoad.exe --i <input> [--o <output>] [--vm] [--c]\nFlags:\n  --i <file>   Input exe to pack\n  --o <file>   Output path (default: input_packed.exe)\n  --vm         Custom VM encryption\n  --c          LZ77 compression\nExamples:\n  TinyLoad.exe --i myapp.exe --c\n  TinyLoad.exe --i myapp.exe --o packed.exe --vm --c\n  TinyLoad.exe --i myapp.exe --vm\nNote: You need at least one of --vm or --c.");
         return 1;
     }
     if (out.empty()) {
