@@ -67,11 +67,11 @@ v5 uses a custom 32-opcode virtual machine. the opcode table is randomly shuffle
 
 the cipher itself is a 128-bit stream cipher using rotl/rotr key mixing, run entirely through the VM so there's no native decryption loop to fingerprint.
 
-## anti-dump
+## anti dump
 
-v5 redirects critical payload imports (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) through stub-resident wrappers. after loading, the import directory is wiped — OriginalFirstThunk, DLL names, and the import DataDirectory are all zeroed. a dumped payload has no import table and IAT entries pointing into dead addresses. automated reconstruction is impossible.
+v5 redirects critical payload imports (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) through stub resident wrappers. after loading, the import directory is wiped. OriginalFirstThunk, DLL names, and the import DataDirectory are all zeroed. a dumped payload has no import table and IAT entries pointing into dead addresses. automated reconstruction is impossible.
 
-internal strings (signature, DLL names, API names) are XOR-encrypted in the stub binary. dead code functions are baked into every packed file to bloat disassembly.
+internal strings (signature, DLL names, API names) are XOR-encrypted in the stub binary. 
 
 Graph:
 
