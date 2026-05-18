@@ -1,5 +1,5 @@
 @echo off
-echo TinyLoad v4.0
+echo TinyLoad v5.0
 echo ------------
 echo Building...
 g++ -o TinyLoad.exe TinyLoad.cpp -static -O2 -s
