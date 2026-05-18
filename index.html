@@ -45,6 +45,26 @@
             <p><a href="#home">← Back to Home</a></p>
             <h2>Development Blog</h2>
 
+            <h3>v5 is here — Anti-Dump & Stealth</h3>
+            <p>
+                v5 doubles down on anti-analysis. The payload is now worthless without the stub at runtime — dumping from memory gets you a broken executable with no import table.
+            </p>
+
+            <h4>what changed</h4>
+            <ul>
+                <li><strong>Anti-Dump IAT hooking:</strong> Critical API calls (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) are redirected through stub-resident wrappers. The payload's IAT points into stub memory — dump it and the addresses are meaningless.</li>
+                <li><strong>Import directory wiped:</strong> After loading, the import directory and OriginalFirstThunk are zeroed. No automated IAT reconstruction path remains.</li>
+                <li><strong>String encryption:</strong> The signature, DLL names, and API names are XOR-encrypted in the stub binary. No plaintext markers visible to static analysis.</li>
+                <li><strong>Dead code insertion:</strong> Fake functions (CRC32, PEB debug checks, PRNG scrambling) are baked into every packed binary to bloat disassembly and mislead analysts.</li>
+                <li><strong>Opmap encryption:</strong> The VM decode table is now encrypted with a per-file key derived from tail data — not a fixed XOR pattern.</li>
+                <li><strong>Junk instruction insertion:</strong> NOPs, self-moves, and zero-rotates are scattered through the VM bytecode to break pattern matching.</li>
+            </ul>
+
+            <h4>why this matters</h4>
+            <p>
+                Previous versions protected the payload at rest. v5 protects it at runtime too — even if an analyst dumps the decrypted payload from memory, they get an exe with no import table, IAT entries pointing to dead addresses, and no way to automatically remap them. They'd have to manually reverse every IAT slot by its stub address.
+            </p>
+
             <h3>v4 is out — Protection Updates</h3>
             <p>
                 v4 is finally here. We focused heavily on anti-analysis and hardening to make TinyLoad practically invisible to standard debuggers and automated unpackers.
@@ -138,7 +158,14 @@ TinyLoad.exe --i game.exe --vm
                 pack time the opcode table is randomly shuffled — so every
                 packed file has a different instruction set. the decryption
                 program is stored as bytecode with 128-bit keys embedded as
-                immediate values. v4 also introduces opaque predicates to the VM execution flow, injecting fake traps to halt analysis. an analyst has to completely reverse the interpreter and dodge the traps before they can even start on the payload.
+                immediate values. v5 adds multiple opaque predicates, junk instruction scattering, and encrypted decode tables to make VM tracing infeasible without fully reversing the interpreter.
+            </p>
+
+            <hr />
+
+            <h2>Anti-Dump</h2>
+            <p>
+                v5 redirects critical payload imports through stub-resident wrappers and wipes the import directory after loading. a dumped payload has no import table and IAT entries pointing into dead addresses. automated reconstruction is impossible — every slot must be manually reversed.
             </p>
 
             <hr />
