@@ -1,7 +1,7 @@
 
 <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
-# TinyLoad V4.0
+# TinyLoad V5.0
 ![Custom VM](https://img.shields.io/badge/Custom%20VM-Live-7c3aed?style=flat&logo=ghost&logoColor=white&labelColor=0d0d0d)
 ![Version](https://img.shields.io/badge/version-v4.0-e84393?style=flat&logo=cplusplus&logoColor=white&labelColor=0d0d0d)
 ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-2ed573?style=flat&logo=checkmarx&logoColor=white)
@@ -63,15 +63,20 @@ custom LZ77 with hash-chain matching, 64KB sliding window, and lazy evaluation. 
 
 ## vm encryption
 
-v4 uses a custom 32-opcode virtual machine. the opcode table is randomly shuffled at pack time — every packed file gets a different ISA. the decryption logic is stored as bytecode with the keys embedded as immediates directly in the program.
-
-v4 introduces Opaque Predicates into the VM to stall static analysis, and PE Section Scrambling to trick auto-unpackers into missing the payload overlay. It also includes basic anti-debug checks (IsDebuggerPresent, CheckRemoteDebuggerPresent) directly integrated into the loader stub.
+v5 uses a custom 32-opcode virtual machine. the opcode table is randomly shuffled at pack time — every packed file gets a different ISA. the opmap decode table is encrypted with a per-file key, and junk instructions are scattered through the bytecode to break pattern matching. multiple opaque predicates trap analysis attempts.
 
 the cipher itself is a 128-bit stream cipher using rotl/rotr key mixing, run entirely through the VM so there's no native decryption loop to fingerprint.
 
+## anti-dump
+
+v5 redirects critical payload imports (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) through stub-resident wrappers. after loading, the import directory is wiped — OriginalFirstThunk, DLL names, and the import DataDirectory are all zeroed. a dumped payload has no import table and IAT entries pointing into dead addresses. automated reconstruction is impossible.
+
+internal strings (signature, DLL names, API names) are XOR-encrypted in the stub binary. dead code functions are baked into every packed file to bloat disassembly.
+
 Graph:
 
-<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/861515a5-2f09-4205-91b3-252380ca69b9" />
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/cbdf9b29-12ce-4742-901a-acb18b546832" />
+
 
 ## license
 
@@ -83,6 +88,6 @@ MIT
 - If you want to suggest any improvements or future updates please open an issue.
 - if you use it, a star helps a lot <3
 - Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
-- Tinyload v4.0 adds anti-debugging, VM opaque predicates, and PE section scrambling 
+- Tinyload v5.0 adds anti-dump IAT hooking, import directory wiping, encrypted opmap, junk instructions, and dead code insertion.
 - Please do not use this tool to pack any malicious software or malware, it is intended to be used for legitimate purposes.
 
