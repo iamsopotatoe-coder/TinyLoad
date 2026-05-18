@@ -63,7 +63,7 @@ custom LZ77 with hash-chain matching, 64KB sliding window, and lazy evaluation. 
 
 ## vm encryption
 
-v5 uses a custom 32-opcode virtual machine. the opcode table is randomly shuffled at pack time — every packed file gets a different ISA. the opmap decode table is encrypted with a per-file key, and junk instructions are scattered through the bytecode to break pattern matching. multiple opaque predicates trap analysis attempts.
+v5 uses a custom 32-opcode virtual machine. the opcode table is randomly shuffled at pack time — every packed file gets a different ISA. the opmap decode table is encrypted with a per-file key, and junk instructions are scattered through the bytecode to break pattern matching.
 
 the cipher itself is a 128-bit stream cipher using rotl/rotr key mixing, run entirely through the VM so there's no native decryption loop to fingerprint.
 
