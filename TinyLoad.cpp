@@ -31,7 +31,16 @@ static LPVOID WINAPI Stub_VirtualAlloc(LPVOID a, SIZE_T s, DWORD t, DWORD p) {
     return ((decltype(&VirtualAlloc))g_Real_VirtualAlloc)(a, s, t, p);
 }
 
-// encrypted strings
+// API strings are XOR-encrypted to avoid them appearing in plaintext
+// in the packed binary's string table. decrypted at runtime by sdec2().
+// key is per-string, rolling XOR: buf[i] = enc[i] ^ (key + i)
+//
+// _ed_k32   = "kernel32.dll"
+// _ed_gmha  = "GetModuleHandleA"
+// _ed_gpa   = "GetProcAddress"
+// _ed_ep    = "ExitProcess"
+// _ed_va    = "VirtualAlloc"
+// _ed_sig   = "TINYLD50"
 struct StubHook { const BYTE* dll; uint8_t dllLen; const BYTE* name; uint8_t nameLen; uint8_t key; FARPROC* realStore; FARPROC wrapper; };
 static const BYTE _ed_k32[] = {0x3A,0x37,0x21,0x3A,0x30,0x3A,0x64,0x6A,0x77,0x3E,0x37,0x30};
 static const BYTE _ed_gmha[] = {0x70,0x5D,0x4D,0x77,0x54,0x58,0x48,0x52,0x5A,0x08,0x20,0x2C,0x27,0x28,0x20,0x07};
