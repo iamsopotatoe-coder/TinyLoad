@@ -77,7 +77,6 @@ Graph:
 
 <img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/cbdf9b29-12ce-4742-901a-acb18b546832" />
 
-
 ## license
 
 MIT
@@ -90,4 +89,7 @@ MIT
 - Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
 - Tinyload v5.0 adds anti-dump IAT hooking, import directory wiping, encrypted opmap, junk instructions, and dead code insertion.
 - Please do not use this tool to pack any malicious software or malware, it is intended to be used for legitimate purposes.
+- Star History:
+
+[![Star History Chart](https://api.star-history.com/svg?repos=iamsopotatoe-coder/TinyLoad&type=Date)](https://star-history.com/#iamsopotatoe-coder/TinyLoad&Date)
 
