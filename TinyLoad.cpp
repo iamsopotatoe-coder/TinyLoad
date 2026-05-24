@@ -31,16 +31,7 @@ static LPVOID WINAPI Stub_VirtualAlloc(LPVOID a, SIZE_T s, DWORD t, DWORD p) {
     return ((decltype(&VirtualAlloc))g_Real_VirtualAlloc)(a, s, t, p);
 }
 
-// API strings are XOR-encrypted to avoid them appearing in plaintext
-// in the packed binary's string table. decrypted at runtime by sdec2().
-// key is per-string, rolling XOR: buf[i] = enc[i] ^ (key + i)
-//
-// _ed_k32   = "kernel32.dll"
-// _ed_gmha  = "GetModuleHandleA"
-// _ed_gpa   = "GetProcAddress"
-// _ed_ep    = "ExitProcess"
-// _ed_va    = "VirtualAlloc"
-// _ed_sig   = "TINYLD50"
+// encrypted strings
 struct StubHook { const BYTE* dll; uint8_t dllLen; const BYTE* name; uint8_t nameLen; uint8_t key; FARPROC* realStore; FARPROC wrapper; };
 static const BYTE _ed_k32[] = {0x3A,0x37,0x21,0x3A,0x30,0x3A,0x64,0x6A,0x77,0x3E,0x37,0x30};
 static const BYTE _ed_gmha[] = {0x70,0x5D,0x4D,0x77,0x54,0x58,0x48,0x52,0x5A,0x08,0x20,0x2C,0x27,0x28,0x20,0x07};
@@ -158,7 +149,7 @@ bool saveFile(const std::string& p, const Bytes& d) {
 
 Bytes lzPack(const Bytes& in) {
     if (in.empty()) return {0, 0, 0, 0};
-    const int WINDOW = 0x10000;
+    const int WINDOW = 0xFFFF;
     const int MAXCHAIN = 512;
     const int MAXMATCH = 258;
     const int MINMATCH = 3;
@@ -443,22 +434,31 @@ bool runInMem(const Bytes& data) {
     if (data.size() < sizeof(IMAGE_DOS_HEADER)) return false;
     IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)data.data();
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+    if (dos->e_lfanew + sizeof(IMAGE_NT_HEADERS64) > data.size()) return false;
     IMAGE_NT_HEADERS64* nt = (IMAGE_NT_HEADERS64*)(data.data() + dos->e_lfanew);
     if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+    if (nt->OptionalHeader.SizeOfImage > 0x40000000) return false; // sanity cap
     void* base = VirtualAlloc(NULL, nt->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!base) return false;
-    memcpy(base, data.data(), nt->OptionalHeader.SizeOfHeaders);
+    size_t hdrSize = nt->OptionalHeader.SizeOfHeaders;
+    if (hdrSize > data.size()) hdrSize = data.size();
+    memcpy(base, data.data(), hdrSize);
     IMAGE_SECTION_HEADER* sect = IMAGE_FIRST_SECTION(nt);
     for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
-        if (sect[i].SizeOfRawData > 0)
-            memcpy((BYTE*)base + sect[i].VirtualAddress, data.data() + sect[i].PointerToRawData, sect[i].SizeOfRawData);
+        if (sect[i].SizeOfRawData > 0) {
+            size_t srcOff = sect[i].PointerToRawData;
+            size_t dstOff = sect[i].VirtualAddress;
+            if (srcOff + sect[i].SizeOfRawData <= data.size() && dstOff + sect[i].SizeOfRawData <= nt->OptionalHeader.SizeOfImage)
+                memcpy((BYTE*)base + dstOff, data.data() + srcOff, sect[i].SizeOfRawData);
+        }
     }
     size_t delta = (size_t)base - nt->OptionalHeader.ImageBase;
     if (delta != 0) {
         auto* relDir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
-        if (relDir->Size > 0) {
+        if (relDir->Size > 0 && relDir->VirtualAddress < nt->OptionalHeader.SizeOfImage) {
             auto* rel = (IMAGE_BASE_RELOCATION*)((BYTE*)base + relDir->VirtualAddress);
-            while (rel->VirtualAddress > 0) {
+            BYTE* relEnd = (BYTE*)base + relDir->VirtualAddress + relDir->Size;
+            while ((BYTE*)rel + sizeof(IMAGE_BASE_RELOCATION) <= relEnd && rel->VirtualAddress > 0) {
                 DWORD count = (rel->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
                 WORD* list = (WORD*)(rel + 1);
                 for (DWORD i = 0; i < count; i++) {
@@ -472,9 +472,10 @@ bool runInMem(const Bytes& data) {
         }
     }
     auto* impDir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (impDir->Size > 0) {
+    if (impDir->Size > 0 && impDir->VirtualAddress < nt->OptionalHeader.SizeOfImage) {
         auto* imp = (IMAGE_IMPORT_DESCRIPTOR*)((BYTE*)base + impDir->VirtualAddress);
-        while (imp->Name) {
+        BYTE* impEnd = (BYTE*)base + impDir->VirtualAddress + impDir->Size;
+        while ((BYTE*)(imp + 1) <= impEnd && imp->Name) {
             HMODULE mod = LoadLibraryA((char*)((BYTE*)base + imp->Name));
             if (mod) {
                 auto* thunk = (IMAGE_THUNK_DATA64*)((BYTE*)base + imp->FirstThunk);
@@ -594,8 +595,17 @@ void scrambleSections(Bytes& data) {
 
 bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     Bytes orig = loadFile(in);
-    if (orig.size() < 2 || orig[0] != 'M' || orig[1] != 'Z') return false;
+    if (orig.size() < 2 || orig[0] != 'M' || orig[1] != 'Z') { printf("error: '%s' is not a valid PE file\n", in.c_str()); return false; }
     printf("input: %zu bytes\n", orig.size());
+    // arch check
+    if (orig.size() > 0x3C + 4) {
+        DWORD peOff = *(DWORD*)(orig.data() + 0x3C);
+        if (peOff + 6 <= orig.size()) {
+            WORD machine = *(WORD*)(orig.data() + peOff + 4);
+            if (machine == 0x014C)
+                printf("warning: 32-bit PE — TinyLoad only supports 64-bit, packing may fail\n");
+        }
+    }
 
     BYTE flags = 0;
     Bytes pay = orig;
@@ -629,7 +639,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     char self[MAX_PATH];
     GetModuleFileNameA(NULL, self, MAX_PATH);
     Bytes stub = loadFile(self);
-    if (stub.empty()) return false;
+    if (stub.empty()) { printf("error: cannot read stub from self\n"); return false; }
 
     if (!saveFile(out, stub)) return false;
     cloneRes(in, out);
@@ -670,8 +680,8 @@ int main(int argc, char* argv[]) {
     bool vm = false, comp = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
-        if (a == "--i" && i + 1 < argc) in = argv[++i];
-        else if (a == "--o" && i + 1 < argc) out = argv[++i];
+        if (a == "--i" && i + 1 < argc) { in = argv[++i]; if (in.size() < 4 || _stricmp(in.c_str() + in.size() - 4, ".exe")) in += ".exe"; }
+        else if (a == "--o" && i + 1 < argc) { out = argv[++i]; if (out.size() < 4 || _stricmp(out.c_str() + out.size() - 4, ".exe")) out += ".exe"; }
         else if (a == "--vm") vm = true;
         else if (a == "--c") comp = true;
     }
