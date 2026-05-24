@@ -1,5 +1,12 @@
 # Changelog
 
+## v5.0 Bug Fixes
+- LZ compressor WINDOW=0x10000 overflowed 16-bit distance field to 0, causing decompression corruption and access violation crash on packed executables. Reduced to 0xFFFF.
+- --i and --o now auto-append .exe if missing (e.g. --i calc works)
+- 32 bit PE detection (as tinyload only supports 64 bit)
+- Better error messages for invalid PE files and stub load failures
+- PE loader bounds checks on headers, section copies, reloc/import directory walks to prevent crashes on malformed input.
+
 ## v5.0
 - opmap is now derived from file content via FNV hash, no longer plaintext in the binary
 - API and DLL name strings are XOR-encrypted, not visible in static analysis
