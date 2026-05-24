@@ -16,6 +16,10 @@ every time you pack a file the VM opcodes are randomly shuffled and baked into t
 
 everything is in one .cpp file, no dependencies.
 
+Workflow:
+
+<img width="720" height="1454" alt="graphworkflow" src="https://github.com/user-attachments/assets/78fe986e-e648-4ba1-9d85-2fee0262ffe2" />
+
 ## download
 
 grab a precompiled binary from [releases](https://github.com/iamsopotatoe-coder/tinyload/releases) or build it yourself.
