@@ -1,5 +1,16 @@
 # Changelog
 
+## v6.0
+- Control Flow Flattening on vmRun: switch statement replaced by computed-goto dispatch table built from encrypted label offsets.
+- Split opcode decoder: 28 opcodes scattered across four 8-entry subtables, each XOR encrypted with an independent key derived from different slices of payload and VM bytecode. Cracking one subtable reveals at most 8 opcodes.
+- Staged entry point: tryRun broken into 6 stages dispatched through a function pointer table. PE loader (runInMem) split into 5 stages using the same pattern.
+- String decryption noise: all encrypted strings pre-decrypted once at startup, then noiseDecrypt() fires at scattered points (every stage transition, every 64 VM iterations).
+- Encrypted dispatch table: VM dispatch offsets never plaintext in the packed binary. Packer reads live label offsets from its own process, encrypts with random key, stores in tail. Packed stub decrypts and recomputes dispatch at runtime.
+- Full resource cloning: EnumResourceTypesA replaces hardcoded RT_ICON/RT_VERSION/RT_MANIFEST — all resource types (RT_RCDATA, bitmaps, dialogs, string tables, fonts, accelerators) now survive packing.
+- Compression improvement: fixed hash-chain self-loop in LZ compressor from double-insert bug. Compression ratios improved ~2% across tested files.
+- PE loader hardening: SizeOfBlock underflow guard, relocation target bounds validation, negative e_lfanew rejection, 32-bit PE explicit rejection, LoadLibraryA failure handling, import thunk iteration cap, lzUnpack error propagation on corrupted data, truncated decompression detection.
+- vmRun g_off stale fix: offset table moved to file scope, recomputed every call — no stale dispatch on nested unpack scenarios.
+
 ## v5.0 Bug Fixes
 - LZ compressor WINDOW=0x10000 overflowed 16-bit distance field to 0, causing decompression corruption and access violation crash on packed executables. Reduced to 0xFFFF.
 - --i and --o now auto-append .exe if missing (e.g. --i calc works)
