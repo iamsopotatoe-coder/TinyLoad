@@ -72,12 +72,12 @@
 
             <h4>what changed</h4>
             <ul>
-                <li><strong>Anti-Debugging integration:</strong> Automatically detect debuggers (`IsDebuggerPresent` and `CheckRemoteDebuggerPresent`) and abort payload execution before decryption even starts.</li>
+                <li><strong>Anti-Debugging integration:</strong> Automatically detect debuggers (<code>IsDebuggerPresent</code> and <code>CheckRemoteDebuggerPresent</code>) and abort payload execution before decryption even starts.</li>
                 <li>
-                    <strong>VM Opaque Predicates:</strong> Inserted fake branching logic into the custom VM. If you try to reverse or manually alter the execution flow during debugging, it drops into a trap (`HLT`) and halts.
+                    <strong>VM Opaque Predicates:</strong> Inserted fake branching logic into the custom VM. If you try to reverse or manually alter the execution flow during debugging, it drops into a trap (<code>HLT</code>) and halts.
                 </li>
                 <li>
-                    <strong>PE Section Scrambling:</strong> Instead of having obvious packer-specific structural anomalies, TinyLoad v4 intercepts the executable before writing it to disk and rewrites all the section headers (`.text`, `.data`, `.rdata`, etc.) using generic names, blending perfectly into the background and avoiding automated packer detection.
+                    <strong>PE Section Scrambling:</strong> Instead of having obvious packer-specific structural anomalies, TinyLoad v4 intercepts the executable before writing it to disk and rewrites all the section headers (<code>.text</code>, <code>.data</code>, <code>.rdata</code>, etc.) using generic names, blending perfectly into the background and avoiding automated packer detection.
                 </li>
             </ul>
 
@@ -110,8 +110,7 @@
 TinyLoad.exe --i app.exe --c
 TinyLoad.exe --i app.exe --o packed.exe --vm --c
 TinyLoad.exe --i game.exe --vm
-        </pre
-            >
+            </pre>
 
             <table border="1" cellpadding="5" cellspacing="0">
                 <tr>
@@ -154,18 +153,25 @@ TinyLoad.exe --i game.exe --vm
 
             <h2>How VM encryption works</h2>
             <p>
-                a custom 32-opcode VM interpreter is embedded in the stub. at
-                pack time the opcode table is randomly shuffled — so every
-                packed file has a different instruction set. the decryption
+                a custom 28-opcode VM interpreter is embedded in the stub. at
+                pack time the opcode table is split into four 8-entry subtables, each XOR-encrypted with an independent key.
+                so every packed file has a different instruction set spread across multiple decode layers. the decryption
                 program is stored as bytecode with 128-bit keys embedded as
-                immediate values. v5 adds multiple opaque predicates, junk instruction scattering, and encrypted decode tables to make VM tracing infeasible without fully reversing the interpreter.
+                immediate values. v6 replaces the switch-based dispatch with a computed-goto jump table built from encrypted label offsets.
+            </p>
+
+            <hr />
+
+            <h2>Control Flow Obfuscation</h2>
+            <p>
+                v6 flattens every major function through indirect dispatch tables. the self-extraction entry point (<code>tryRun</code>) is 6 stages called through a function pointer array. the PE loader (<code>runInMem</code>) is 5 stages using the same pattern. string decryption is pre-loaded once and then re-triggered as noise at scattered points.
             </p>
 
             <hr />
 
             <h2>Anti-Dump</h2>
             <p>
-                v5 redirects critical payload imports through stub-resident wrappers and wipes the import directory after loading. a dumped payload has no import table and IAT entries pointing into dead addresses. automated reconstruction is impossible — every slot must be manually reversed.
+                v6 redirects critical payload imports through stub-resident wrappers and wipes the import directory after loading. a dumped payload has no import table and IAT entries pointing into dead addresses. automated reconstruction is impossible — every slot must be manually reversed.
             </p>
 
             <hr />
