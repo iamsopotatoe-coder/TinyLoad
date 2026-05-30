@@ -4,6 +4,7 @@
 ![Custom VM](https://img.shields.io/badge/Custom%20VM-Live-7c3aed?style=flat&logo=ghost&logoColor=white&labelColor=0d0d0d)
 ![Version](https://img.shields.io/badge/version-v6.0-e84393?style=flat&logo=cplusplus&logoColor=white&labelColor=0d0d0d)
 ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-2ed573?style=flat&logo=checkmarx&logoColor=white)
+[![Awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/gmh5225/awesome-game-security)
 
 simple PE packer for Windows. compresses and encrypts executables with a custom virtual machine into a self-extracting stub.
 
