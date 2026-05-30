@@ -10,10 +10,8 @@ simple PE packer for Windows. compresses and encrypts executables with a custom 
 ## how it works
 
 TinyLoad appends your compressed payload to a copy of itself. when the packed exe runs it uses a custom VM interpreter, executes the decryption bytecode against the payload, then loads and runs it directly in RAM.
-
-every time you pack a file the VM opcodes are randomly scattered across four independently-keyed decode tables and baked into the stub — every packed file speaks a different instruction set split across multiple layers. the VM interpreter itself uses a computed-goto dispatch table built from encrypted label offsets, so there's no switch statement to fingerprint. standard disassemblers can't auto-trace the decryption without reversing the interpreter first.
-
-everything is in one .cpp file, no dependencies.
+every time you pack a file the VM opcodes are randomly changed and put into 4 independently keyed tables.
+Everything is in one c++ file and has no dependencies!
 
 Workflow:
 
@@ -78,9 +76,8 @@ the VM dispatch table itself is never plaintext in the packed binary. pack time 
 
 ## anti dump
 
-v6 redirects critical payload imports (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) through stub resident wrappers. after loading, the import directory is wiped. OriginalFirstThunk, DLL names, and the import DataDirectory are all zeroed. a dumped payload has no import table and IAT entries pointing into dead addresses. automated reconstruction is impossible.
-
-internal strings (signature, DLL names, API names) are XOR-encrypted in the stub binary. 
+v6 redirects critical payload imports (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) through stub resident wrappers. after loading, the import directory is wiped. OriginalFirstThunk, DLL names, and the import DataDirectory are all zeroed. a dumped payload has no import table and IAT entries pointing into dead addresses.
+internal strings (signature, DLL names, API names) are XOR'ed in the stub binary. 
 
 Graph:
 
