@@ -31,7 +31,7 @@ static LPVOID WINAPI Stub_VirtualAlloc(LPVOID a, SIZE_T s, DWORD t, DWORD p) {
     return ((decltype(&VirtualAlloc))g_Real_VirtualAlloc)(a, s, t, p);
 }
 
-// encrypted strings
+//You will see encrypted strings trougout this code, they are XOR'ed to avoid them being plaintext. decrypted by sdec2() using a positional XOR cipher (buf[i] = enc[i] ^ (key + i)). Keys are stored per string in StubHook 
 struct StubHook { const BYTE* dll; uint8_t dllLen; const BYTE* name; uint8_t nameLen; uint8_t key; FARPROC* realStore; FARPROC wrapper; };
 static const BYTE _ed_k32[] = {0x3A,0x37,0x21,0x3A,0x30,0x3A,0x64,0x6A,0x77,0x3E,0x37,0x30};
 static const BYTE _ed_gmha[] = {0x70,0x5D,0x4D,0x77,0x54,0x58,0x48,0x52,0x5A,0x08,0x20,0x2C,0x27,0x28,0x20,0x07};
