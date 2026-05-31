@@ -85,7 +85,7 @@ v7 redirects critical payload imports (GetModuleHandleA, GetProcAddress, ExitPro
 
 Graph:
 
-<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/cbdf9b29-12ce-4742-901a-acb18b546832" />
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/e07c1f38-1063-4564-8d7c-d75275d2125f" />
 
 ## license
 
@@ -97,7 +97,6 @@ MIT
 - If you want to suggest any improvements or future updates please open an issue.
 - if you use it, a star helps a lot <3
 - Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
-- Tinyload v7.0 adds VEH page-fault decryption, overlay chunk splitting, canary corridor tamper detection, encrypted tail metadata/bytecode, zero-filler entropy masking, and encrypted product strings.
 - Please do not use this tool to pack any malicious software or malware, it is intended to be used for legitimate purposes.
 - Star History:
 
