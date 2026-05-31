@@ -1,32 +1,153 @@
 <!doctype html>
-<html>
+<html lang="en">
     <head>
-        <title>TinyLoad - PE packer for Windows</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="description" content="TinyLoad — simple PE packer for Windows. LZ77 compression, custom VM encryption, VEH page-fault decryption, anti-dump. Single-file, no dependencies.">
+        <meta name="keywords" content="PE packer, executable packer, Windows packer, LZ77, VM encryption, anti-dump, VEH, page-fault decryption, executable protection, TinyLoad">
+        <meta property="og:title" content="TinyLoad — PE packer for Windows">
+        <meta property="og:description" content="Compress and encrypt Windows executables with a custom VM. LZ77, VEH page-fault decryption, anti-dump.">
+        <meta property="og:type" content="website">
+        <title>TinyLoad — PE packer for Windows</title>
         <style>
+            :root {
+                --bg: #ffffff;
+                --fg: #1e293b;
+                --muted: #64748b;
+                --accent: #7c3aed;
+                --accent-dim: #6d28d9;
+                --code-bg: #f1f5f9;
+                --border: #e2e8f0;
+                --radius: 6px;
+            }
+
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+
             body {
-                font-family: sans-serif;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                font-size: 15px;
+                line-height: 1.65;
+                color: var(--fg);
+                background: var(--bg);
+                max-width: 820px;
+                margin: 0 auto;
+                padding: 40px 24px 60px;
             }
 
-            .section {
-                display: none;
+            h1 {
+                font-size: 28px;
+                font-weight: 700;
+                letter-spacing: -0.5px;
+                margin-bottom: 4px;
             }
-            #home {
-                display: block;
+            h2 {
+                font-size: 20px;
+                font-weight: 650;
+                margin: 36px 0 12px;
+                color: var(--fg);
+            }
+            h3 {
+                font-size: 17px;
+                font-weight: 650;
+                margin: 28px 0 8px;
+                color: var(--fg);
+            }
+            h4 {
+                font-size: 14px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: var(--muted);
+                margin: 20px 0 8px;
             }
 
-            #blog:target {
-                display: block;
+            p { margin-bottom: 12px; }
+
+            a {
+                color: var(--accent);
+                text-decoration: none;
+                font-weight: 500;
             }
-            #blog:target ~ #home {
-                display: none;
-            }
-            #home:target {
-                display: block;
+            a:hover { color: var(--accent-dim); text-decoration: underline; }
+
+            hr {
+                border: none;
+                border-top: 1px solid var(--border);
+                margin: 32px 0;
             }
 
-            body:has(#blog:target) .main-header {
-                display: none;
+            pre {
+                background: var(--code-bg);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                padding: 16px 20px;
+                font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+                font-size: 13px;
+                line-height: 1.55;
+                overflow-x: auto;
+                margin-bottom: 16px;
             }
+            pre.usage {
+                background: var(--fg);
+                color: #e2e8f0;
+                border: none;
+                padding: 20px 24px;
+                font-size: 14px;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 16px;
+                font-size: 14px;
+            }
+            th {
+                text-align: left;
+                font-weight: 650;
+                color: var(--muted);
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                padding: 8px 12px;
+                border-bottom: 2px solid var(--border);
+            }
+            td {
+                padding: 10px 12px;
+                border-bottom: 1px solid var(--border);
+                vertical-align: top;
+            }
+            td code {
+                background: var(--code-bg);
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 13px;
+            }
+
+            ul, ol { margin: 8px 0 16px 22px; }
+            li { margin-bottom: 6px; }
+            li strong { color: var(--fg); }
+
+            small { color: var(--muted); font-size: 13px; }
+
+            .main-header {
+                margin-bottom: 28px;
+                padding-bottom: 20px;
+                border-bottom: 1px solid var(--border);
+            }
+            .main-header p { color: var(--muted); margin-bottom: 6px; }
+            .main-header nav { margin-top: 8px; }
+            .main-header nav a {
+                font-weight: 500;
+                margin-right: 14px;
+            }
+
+            .section { display: none; }
+            #home { display: block; }
+
+            #blog:target { display: block; }
+            #blog:target ~ #home { display: none; }
+            #home:target { display: block; }
+            body:has(#blog:target) .main-header { display: none; }
         </style>
     </head>
 
@@ -37,13 +158,60 @@
                 simple PE packer with LZ77 compression and custom VM encryption
                 for Windows executables.
             </p>
-            <p><a href="#home">Home</a> | <a href="#blog">Blog</a></p>
-            <hr />
+            <nav><a href="#home">Home</a><a href="#blog">Blog</a></nav>
         </div>
 
         <div id="blog" class="section">
             <p><a href="#home">← Back to Home</a></p>
             <h2>Development Blog</h2>
+
+            <h3>v7 is live — VEH Page-Fault Decryption & Overlay Hardening</h3>
+            <p>
+                v7 adds runtime memory encryption, overlay structural obfuscation, and tamper detection. The payload is never fully decrypted in memory at any point — pages are decrypted on first access and re-encrypted after 200ms of idle time.
+            </p>
+
+            <h4>what changed</h4>
+            <ul>
+                <li><strong>VEH Page-Fault Decryption:</strong> All PE section pages are mapped as PAGE_NOACCESS. A vectored exception handler decrypts pages on first access and restores their original section protection. A watchdog thread re-encrypts cold pages after 200ms of inactivity with a 256-slot LRU cache. Memory dumps capture only recently-accessed pages.</li>
+                <li><strong>Overlay Chunk Splitting:</strong> The payload is split into 4 chunks scattered across the file with random junk gaps (128–640 bytes) and shuffled logical order.</li>
+                <li><strong>Encrypted Overlay Metadata:</strong> Every Tail field (sizes, flags, dispatch keys, VM code size, canary data) is individually XOR-encrypted with per-file stubKey derived from the .text section.</li>
+                <li><strong>Encrypted VM Bytecode:</strong> The VM program blob is XOR-encrypted with a stubKey stream — appears as uniform noise in the overlay. Cannot be separated without key derivation.</li>
+                <li><strong>Canary Corridor:</strong> 8 chained integrity checks run inside the VM after decryption. Each canary's expected value depends on the previous actual byte. Failures escalate a cumulative corruption mask (1→8 bits) XOR'd into the plaintext — tampering silently corrupts the output.</li>
+                <li><strong>Zero-Filler Interleave:</strong> Overlay interleaved with zero bytes at 3:1 ratio, reducing entropy from ~7.96 to ~6.73 bits/byte to blend with normal PE section entropy.</li>
+                <li><strong>Encrypted Product Strings:</strong> Help text, CLI flags, and version strings XOR-encrypted at rest. No product name or version markers visible in the packed binary.</li>
+            </ul>
+
+            <h4>why this matters</h4>
+            <p>
+                Previous versions protected the payload at rest and wiped imports on load. v7 ensures the payload is never fully decrypted in memory at any given moment — even if an analyst dumps the process, most pages are encrypted XOR noise. The watchdog re-encrypt cycle means the window to capture decrypted code is at most 200ms per page.
+            </p>
+            <p>
+                The overlay hardening means finding where the payload starts requires extracting and hashing the stub's .text section to derive stubKey. The chunk splitting, interleaving, and encrypted metadata make static overlay carving impractical.
+            </p>
+
+            <h3>v6 is live — Control Flow Obfuscation & Deep Hardening</h3>
+            <p>
+                v6 doesn't just hide the payload — it hides the stub itself. Every major function is now flattened through indirect dispatch tables, the VM interpreter has no recognizable switch statement, and the opcode decoder is split across four independently-keyed tables.
+            </p>
+
+            <h4>what changed</h4>
+            <ul>
+                <li><strong>Control Flow Flattening on vmRun:</strong> The VM interpreter's switch statement is gone — replaced by a computed-goto dispatch table built from encrypted label offsets. No static disassembler can reconstruct the opcode handler layout without the per-file key stored in the tail.</li>
+                <li><strong>Split Opcode Decoder:</strong> Instead of one 32-entry opmap, opcodes are scattered across four separate 8-entry subtables, each XOR-encrypted with an independent key derived from different slices of the payload and VM bytecode. Cracking one subtable reveals at most 8 of 28 opcodes.</li>
+                <li><strong>Staged Entry Point:</strong> <code>tryRun</code> is broken into 6 stages dispatched through a function pointer table — no linear flow to trace. The PE loader (<code>runInMem</code>) is split into 5 stages using the same pattern.</li>
+                <li><strong>String Decryption Noise:</strong> All encrypted strings are pre-decrypted once at startup, then <code>noiseDecrypt()</code> fires at scattered points — every stage, every 64 VM iterations. Real <code>sdec2</code> calls (IAT hooking) are drowned in identical-looking decoys. Dynamic traces become useless.</li>
+                <li><strong>Encrypted Dispatch Table:</strong> The VM dispatch offsets are never plaintext in the packed binary. The packer reads live label offsets from its own process, encrypts them with a random key, and stores them in the tail. The packed stub decrypts and recomputes the dispatch at runtime.</li>
+                <li><strong>Full Resource Cloning:</strong> All resource types are now enumerated and cloned — not just icons and manifests. RT_RCDATA, bitmaps, dialogs, string tables, fonts, and accelerators all survive packing.</li>
+                <li><strong>Compression improvement:</strong> Fixed a hash-chain self-loop in the LZ compressor that was silently degrading match quality. Compression ratios improved ~2% across the board.</li>
+            </ul>
+
+            <h4>why this matters</h4>
+            <p>
+                v5 protected the payload. v6 protects the protector. Every major code path in the stub now runs through indirect function calls — the control flow graph is a web, not a tree. The VM interpreter has no switch statement to fingerprint. String decryption calls that used to be precise markers for "here's where the stub reads encrypted data" are now indistinguishable from noise. An analyst can't tell which <code>sdec2</code> call is real and which is a decoy without executing every path.
+            </p>
+            <p>
+                The split opcode decoder means even if you recover one subtable key — perhaps by guessing that HLT always maps to opcode 0 — you only get 8 opcodes. The remaining 20 are behind three different keys derived from different data.
+            </p>
 
             <h3>v5 is here — Anti-Dump & Stealth</h3>
             <p>
@@ -72,12 +240,12 @@
 
             <h4>what changed</h4>
             <ul>
-                <li><strong>Anti-Debugging integration:</strong> Automatically detect debuggers (<code>IsDebuggerPresent</code> and <code>CheckRemoteDebuggerPresent</code>) and abort payload execution before decryption even starts.</li>
+                <li><strong>Anti-Debugging integration:</strong> Automatically detect debuggers (`IsDebuggerPresent` and `CheckRemoteDebuggerPresent`) and abort payload execution before decryption even starts.</li>
                 <li>
-                    <strong>VM Opaque Predicates:</strong> Inserted fake branching logic into the custom VM. If you try to reverse or manually alter the execution flow during debugging, it drops into a trap (<code>HLT</code>) and halts.
+                    <strong>VM Opaque Predicates:</strong> Inserted fake branching logic into the custom VM. If you try to reverse or manually alter the execution flow during debugging, it drops into a trap (`HLT`) and halts.
                 </li>
                 <li>
-                    <strong>PE Section Scrambling:</strong> Instead of having obvious packer-specific structural anomalies, TinyLoad v4 intercepts the executable before writing it to disk and rewrites all the section headers (<code>.text</code>, <code>.data</code>, <code>.rdata</code>, etc.) using generic names, blending perfectly into the background and avoiding automated packer detection.
+                    <strong>PE Section Scrambling:</strong> Instead of having obvious packer-specific structural anomalies, TinyLoad v4 intercepts the executable before writing it to disk and rewrites all the section headers (`.text`, `.data`, `.rdata`, etc.) using generic names, blending perfectly into the background and avoiding automated packer detection.
                 </li>
             </ul>
 
@@ -109,10 +277,11 @@
             <pre>
 TinyLoad.exe --i app.exe --c
 TinyLoad.exe --i app.exe --o packed.exe --vm --c
-TinyLoad.exe --i game.exe --vm
-            </pre>
+TinyLoad.exe --i app.exe --vm --c --veh
+        </pre
+            >
 
-            <table border="1" cellpadding="5" cellspacing="0">
+            <table>
                 <tr>
                     <th>Flag</th>
                     <th>What it does</th>
@@ -136,6 +305,10 @@ TinyLoad.exe --i game.exe --vm
                     <td><code>--c</code></td>
                     <td>compress with LZ77</td>
                 </tr>
+                <tr>
+                    <td><code>--veh</code></td>
+                    <td>VEH page-fault decryption</td>
+                </tr>
             </table>
 
             <hr />
@@ -154,7 +327,7 @@ TinyLoad.exe --i game.exe --vm
             <h2>How VM encryption works</h2>
             <p>
                 a custom 28-opcode VM interpreter is embedded in the stub. at
-                pack time the opcode table is split into four 8-entry subtables, each XOR-encrypted with an independent key.
+                pack time the opcode table is split into four 8-entry subtables, each XOR-encrypted with an independent key —
                 so every packed file has a different instruction set spread across multiple decode layers. the decryption
                 program is stored as bytecode with 128-bit keys embedded as
                 immediate values. v6 replaces the switch-based dispatch with a computed-goto jump table built from encrypted label offsets.
@@ -162,16 +335,9 @@ TinyLoad.exe --i game.exe --vm
 
             <hr />
 
-            <h2>Control Flow Obfuscation</h2>
+            <h2>VEH Page-Fault Decryption</h2>
             <p>
-                v6 flattens every major function through indirect dispatch tables. the self-extraction entry point (<code>tryRun</code>) is 6 stages called through a function pointer array. the PE loader (<code>runInMem</code>) is 5 stages using the same pattern. string decryption is pre-loaded once and then re-triggered as noise at scattered points.
-            </p>
-
-            <hr />
-
-            <h2>Anti-Dump</h2>
-            <p>
-                v6 redirects critical payload imports through stub-resident wrappers and wipes the import directory after loading. a dumped payload has no import table and IAT entries pointing into dead addresses. automated reconstruction is impossible — every slot must be manually reversed.
+                <code>--veh</code> maps all PE section pages as PAGE_NOACCESS. A vectored exception handler decrypts pages on first access and restores their original section protection (PAGE_EXECUTE_READ for .text, PAGE_READONLY for .rdata). A watchdog thread re-encrypts pages after 200ms of inactivity with a 256-slot LRU cache. Memory dumps capture only recently-accessed pages — cold pages remain encrypted XOR noise.
             </p>
 
             <hr />
