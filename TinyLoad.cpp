@@ -31,16 +31,7 @@ static LPVOID WINAPI Stub_VirtualAlloc(LPVOID a, SIZE_T s, DWORD t, DWORD p) {
     return ((decltype(&VirtualAlloc))g_Real_VirtualAlloc)(a, s, t, p);
 }
 
-// API strings are XOR'ed to avoid appearing as plaintext in the
-// packed binary's string table. decrypted at runtime by sdec2().
-// key is per-string, rolling XOR: buf[i] = enc[i] ^ (key + i)
-//
-// _ed_k32 = "kernel32.dll"
-// _ed_gmha = "GetModuleHandleA"
-// _ed_gpa = "GetProcAddress"
-// _ed_ep = "ExitProcess"
-// _ed_va = "VirtualAlloc"
-// _ed_sig = "TINYLD50"
+// encrypted strings
 struct StubHook { const BYTE* dll; uint8_t dllLen; const BYTE* name; uint8_t nameLen; uint8_t key; FARPROC* realStore; FARPROC wrapper; };
 static const BYTE _ed_k32[] = {0x3A,0x37,0x21,0x3A,0x30,0x3A,0x64,0x6A,0x77,0x3E,0x37,0x30};
 static const BYTE _ed_gmha[] = {0x70,0x5D,0x4D,0x77,0x54,0x58,0x48,0x52,0x5A,0x08,0x20,0x2C,0x27,0x28,0x20,0x07};
@@ -89,7 +80,7 @@ __attribute__((noinline)) __attribute__((used)) static void noiseDecrypt() {
     sdec2((char*)junk, g_noise[idx].enc, g_noise[idx].n, g_noise[idx].k);
 }
 
-bool isDebugged() {
+__attribute__((noinline)) bool isDebugged() {
     // go away windbg
     if (IsDebuggerPresent()) return true;
     BOOL remote = FALSE;
@@ -116,6 +107,15 @@ struct Tail {
     BYTE subtables[4][8];
     DWORD vmCodeSz;
     uint64_t dispKey;
+    // canary
+    uint32_t canaryOff[8];
+    BYTE     canaryExp[8];
+    BYTE     canaryCnt;
+    // chunk splitting
+    uint32_t chunkOff[4];
+    uint32_t chunkSz[4];
+    uint8_t  chunkOrder[4];
+    uint8_t  chunkCnt;
 };
 #pragma pack(pop)
 
@@ -194,24 +194,37 @@ bool saveFile(const std::string& p, const Bytes& d) {
     return f.good();
 }
 
+static void writeVarInt(Bytes& out, int v) {
+    while (v >= 0x80) { out.push_back((BYTE)(v | 0x80)); v >>= 7; }
+    out.push_back((BYTE)v);
+}
+
+static int readVarInt(const Bytes& in, size_t& p) {
+    unsigned v = 0; int shift = 0;
+    while (p < in.size() && shift < 28) {
+        BYTE b = in[p++];
+        v |= (unsigned)(b & 0x7F) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+    }
+    return (int)v;
+}
+
 Bytes lzPack(const Bytes& in) {
     if (in.empty()) return {0, 0, 0, 0};
     const int WINDOW = 0xFFFF;
-    const int MAXCHAIN = 512;
+    const int MAXCHAIN = 4096;
     const int MAXMATCH = 258;
     const int MINMATCH = 3;
     const int HSIZE = 1 << 16;
     std::vector<int> head(HSIZE, -1);
     std::vector<int> prev(in.size(), -1);
     auto hash4 = [&](size_t p) -> int {
-        if (p + 3 >= in.size()) {
-            if (p + 2 >= in.size()) return 0;
-            return ((in[p] * 0x1000193u) ^ (in[p+1] * 0x100) ^ in[p+2]) & (HSIZE - 1);
-        }
+        if (p + 2 >= in.size()) return 0;
         unsigned h = in[p];
         h = (h * 0x1000193u) ^ in[p+1];
         h = (h * 0x1000193u) ^ in[p+2];
-        h = (h * 0x1000193u) ^ in[p+3];
+        if (p + 3 < in.size()) h = (h * 0x1000193u) ^ in[p+3];
         return h & (HSIZE - 1);
     };
     auto insert = [&](size_t p) {
@@ -228,6 +241,7 @@ Bytes lzPack(const Bytes& in) {
         int lo = std::max(0, (int)p - WINDOW);
         int cap = std::min(MAXMATCH, (int)(in.size() - p));
         for (int c = 0; c < MAXCHAIN && cur >= lo; c++) {
+            if (ml > 0 && ((size_t)(cur + ml) >= in.size() || (size_t)(p + ml) >= in.size())) ml = 0;
             if (in[cur] == in[p] && in[cur + ml] == in[p + ml]) {
                 int l = 1;
                 while (l < cap && in[cur + l] == in[p + l]) l++;
@@ -245,20 +259,16 @@ Bytes lzPack(const Bytes& in) {
         int ml, md;
         findMatch(pos, ml, md);
         if (ml >= MINMATCH) {
-            // lazy matching: try 1 byte ahead, pick the better match
-            if (pos + 1 + MINMATCH <= in.size()) {
+            int bestOff = 0, bestLen = ml, bestDist = md;
+            for (int la = 1; la <= 2 && pos + la + MINMATCH <= in.size(); la++) {
                 int ml2, md2;
-                findMatch(pos + 1, ml2, md2);
-                if (ml2 > ml + 1) {
-                    toks.push_back({false, in[pos], 0, 0});
-                    insert(pos);
-                    pos++;
-                    ml = ml2; md = md2;
-                }
+                findMatch(pos + la, ml2, md2);
+                if (ml2 > bestLen + la) { bestOff = la; bestLen = ml2; bestDist = md2; }
             }
-            toks.push_back({true, 0, md, ml});
-            for (int j = 0; j < ml; j++) insert(pos + j);
-            pos += ml;
+            for (int j = 0; j < bestOff; j++) { toks.push_back({false, in[pos], 0, 0}); insert(pos); pos++; }
+            toks.push_back({true, 0, bestDist, bestLen});
+            for (int j = 0; j < bestLen; j++) insert(pos + j);
+            pos += bestLen;
         } else {
             insert(pos);
             toks.push_back({false, in[pos], 0, 0});
@@ -277,9 +287,8 @@ Bytes lzPack(const Bytes& in) {
             auto& t = toks[ti];
             if (t.match) {
                 flag |= (1 << bit);
-                out.push_back(t.dist & 0xFF);
-                out.push_back((t.dist >> 8) & 0xFF);
-                out.push_back((BYTE)(t.len - MINMATCH));
+                writeVarInt(out, t.dist);
+                writeVarInt(out, t.len - MINMATCH);
             } else { out.push_back(t.lit); }
         }
         out[fp] = flag;
@@ -297,10 +306,9 @@ Bytes lzUnpack(const Bytes& in) {
         BYTE flag = in[p++];
         for (int bit = 0; bit < 8 && p < in.size() && out.size() < sz; bit++) {
             if (flag & (1 << bit)) {
-                if (p + 2 >= in.size()) break;
-                int dist = in[p] | (in[p + 1] << 8);
-                int len = (int)in[p + 2] + 3;
-                p += 3;
+                if (p >= in.size()) break;
+                int dist = readVarInt(in, p);
+                int len = readVarInt(in, p) + 3;
                 if (dist <= 0 || (size_t)dist > out.size()) return {};
                 size_t src = out.size() - dist;
                 for (int i = 0; i < len; i++) out.push_back(out[src + i]);
@@ -555,6 +563,7 @@ ldb_l:
         if (ip + 2 >= codesz) goto dispatch;
         uint8_t d = code[ip++], b = code[ip++], idx = code[ip++];
         if (d >= 9 || b >= 9 || idx >= 9) return;
+        if (r[idx] >= r[1]) return;
         r[d] = ((BYTE*)(uintptr_t)r[b])[r[idx]];
     }
     goto dispatch;
@@ -563,6 +572,7 @@ stb_l:
         if (ip + 2 >= codesz) goto dispatch;
         uint8_t b = code[ip++], idx = code[ip++], s = code[ip++];
         if (b >= 9 || idx >= 9 || s >= 9) return;
+        if (r[idx] >= r[1]) return;
         ((BYTE*)(uintptr_t)r[b])[r[idx]] = (BYTE)r[s];
     }
     goto dispatch;
@@ -615,7 +625,8 @@ static void eR(Bytes& bc, uint8_t r) { bc.push_back(r); }
 static void e64(Bytes& bc, uint64_t v) { for (int i = 0; i < 8; i++) bc.push_back((v >> (i*8)) & 0xFF); }
 static void e32(Bytes& bc, int32_t v) { uint32_t u = (uint32_t)v; for (int i = 0; i < 4; i++) bc.push_back((u >> (i*8)) & 0xFF); }
 
-Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
+Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2,
+                    const uint32_t* canOff, const BYTE* canExp, BYTE canCnt) {
     Bytes bc;
 
     eOp(bc,enc,LDI_I); eR(bc,2); e64(bc,0);
@@ -635,7 +646,7 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     int opqEnd = (int)bc.size();
     { int32_t off = opqEnd - (opqPatch + 4); memcpy(&bc[opqPatch], &off, 4); }
 
-    // xor-self → 0
+    // xor-self -> 0
     eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0xDEADBEEFCAFEBABEull);
     eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,6);
     eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,1);
@@ -656,12 +667,37 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     int opq3End = (int)bc.size();
     { int32_t off = opq3End - (opq3Patch + 4); memcpy(&bc[opq3Patch], &off, 4); }
 
+    // opaque
+    eOp(bc,enc,MOV_I); eR(bc,6); eR(bc,3);
+    eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,3); // r6 = 0
+    eOp(bc,enc,CMP_I); eR(bc,6); eR(bc,6); eR(bc,5); // r6 = (0 < 1) = 1
+    eOp(bc,enc,JNZ_I); eR(bc,6);
+    int opq5Patch = (int)bc.size(); e32(bc,0);
+    eOp(bc,enc,HLT_I); // trap if zero (never)
+    int opq5End = (int)bc.size();
+    { int32_t o = opq5End - (opq5Patch + 4); memcpy(&bc[opq5Patch], &o, 4); }
+
+    // opaque
+    eOp(bc,enc,ANDI_I); eR(bc,8); e64(bc,1); // r8 = (junk) & 1 
+    eOp(bc,enc,CMP_I); eR(bc,6); eR(bc,5); eR(bc,8); // r6 = (1 < r8), always 0
+    eOp(bc,enc,JNZ_I); eR(bc,6); // never jumps
+    int opq6Patch = (int)bc.size(); e32(bc,0);
+    { // dead block
+        eOp(bc,enc,ROL_I); eR(bc,8); eR(bc,8);
+        eOp(bc,enc,MULI_I); eR(bc,8); e64(bc,0x517CC1B7);
+        eOp(bc,enc,NOP_I);
+    }
+    int opq6End = (int)bc.size();
+    { int32_t o = opq6End - (opq6Patch + 4); memcpy(&bc[opq6Patch], &o, 4); }
+
     int loopPos = (int)bc.size();
 
     eOp(bc,enc,CMP_I); eR(bc,7); eR(bc,2); eR(bc,1);
     eOp(bc,enc,JNZ_I); eR(bc,7);
     int jnzPatch = (int)bc.size(); e32(bc, 0);
-    eOp(bc,enc,HLT_I);
+    // JMP to canary block (patched later)
+    eOp(bc,enc,JMP_I);
+    int exitPatch = (int)bc.size(); e32(bc, 0);
 
     int bodyPos = (int)bc.size();
     { int32_t off = bodyPos - (jnzPatch + 4); memcpy(&bc[jnzPatch], &off, 4); }
@@ -714,6 +750,58 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2) {
     int32_t back = loopPos - ((int)bc.size() + 4);
     e32(bc, back);
 
+    // patch exit jump to here
+    int canaryStart = (int)bc.size();
+    { int32_t off = canaryStart - (exitPatch + 4); memcpy(&bc[exitPatch], &off, 4); }
+
+    // canary
+    if (canCnt > 0) {
+        int n = canCnt < 8 ? canCnt : 8;
+        uint32_t minOff = canOff[0];
+        for (int c = 1; c < n; c++) if (canOff[c] < minOff) minOff = canOff[c];
+
+        // r6=mask, r7=prev_actual, r5=const_1
+        eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0); // mask=0
+        eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,0); // prev=0
+        eOp(bc,enc,LDI_I); eR(bc,5); e64(bc,1); // const 1
+
+        for (int c = 0; c < n; c++) {
+            eOp(bc,enc,LDI_I); eR(bc,2); e64(bc, canOff[c]);
+            eOp(bc,enc,LDB_I); eR(bc,8); eR(bc,0); eR(bc,2); // r8=actual
+            eOp(bc,enc,LDI_I); eR(bc,3); e64(bc, canExp[c]);
+            eOp(bc,enc,XOR_I); eR(bc,3); eR(bc,7); // r3=canExp^prev
+            eOp(bc,enc,MOV_I); eR(bc,4); eR(bc,8);
+            eOp(bc,enc,XOR_I); eR(bc,4); eR(bc,3); // r4=actual^expected
+            eOp(bc,enc,CMP_I); eR(bc,4); eR(bc,4); eR(bc,5); // r4=(diff<1)
+            eOp(bc,enc,JNZ_I); eR(bc,4);
+            int okPatch = (int)bc.size(); e32(bc,0);
+            eOp(bc,enc,LDI_I); eR(bc,2); e64(bc, (uint64_t)1 << c);
+            eOp(bc,enc,OR_I);  eR(bc,6); eR(bc,2); // mask|=bit
+            int okEnd = (int)bc.size();
+            { int32_t o = okEnd - (okPatch + 4); memcpy(&bc[okPatch], &o, 4); }
+            eOp(bc,enc,MOV_I); eR(bc,7); eR(bc,8); // prev=actual
+        }
+
+        // apply mask from minOff
+        eOp(bc,enc,LDI_I); eR(bc,2); e64(bc, minOff);
+        int applyLoop = (int)bc.size();
+        eOp(bc,enc,CMP_I); eR(bc,3); eR(bc,2); eR(bc,1); // r3=(j<size)
+        eOp(bc,enc,JNZ_I); eR(bc,3);
+        int aplPatch = (int)bc.size(); e32(bc,0);
+        eOp(bc,enc,HLT_I);
+        int aplBody = (int)bc.size();
+        { int32_t o = aplBody - (aplPatch + 4); memcpy(&bc[aplPatch], &o, 4); }
+        eOp(bc,enc,MOV_I); eR(bc,4); eR(bc,6);
+        eOp(bc,enc,ANDI_I); eR(bc,4); e64(bc,0xFF);
+        eOp(bc,enc,LDB_I); eR(bc,8); eR(bc,0); eR(bc,2);
+        eOp(bc,enc,XOR_I); eR(bc,8); eR(bc,4);
+        eOp(bc,enc,STB_I); eR(bc,0); eR(bc,2); eR(bc,8);
+        eOp(bc,enc,ADDI_I); eR(bc,2); e64(bc,1);
+        eOp(bc,enc,JMP_I);
+        int32_t aplBack = applyLoop - ((int)bc.size() + 4);
+        e32(bc, aplBack);
+    }
+
     return bc;
 }
 
@@ -736,12 +824,16 @@ void vmEncryptPayload(Bytes& pay, uint64_t k1, uint64_t k2) {
 // pe loader stages
 typedef int (*PEStageFn)();
 
+#define FLAG_VEH   4
+#define FLAG_CHUNK 8
+
 static struct {
     const Bytes* data;
     void* base;
     IMAGE_DOS_HEADER* dos;
     IMAGE_NT_HEADERS64* nt;
     size_t delta;
+    bool veh;
 } g_pe;
 
 static int sp_hdr() {
@@ -753,7 +845,7 @@ static int sp_hdr() {
     g_pe.nt = (IMAGE_NT_HEADERS64*)(g_pe.data->data() + g_pe.dos->e_lfanew);
     if (g_pe.nt->Signature != IMAGE_NT_SIGNATURE) return -2;
     if (g_pe.nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64) return -2;
-    if (g_pe.nt->OptionalHeader.SizeOfImage > 0x40000000) return -2;
+    if (g_pe.nt->OptionalHeader.SizeOfImage > 0x40000000 || g_pe.nt->OptionalHeader.SizeOfImage == 0) return -2;
     return 1;
 }
 static int sp_map() {
@@ -763,6 +855,7 @@ static int sp_map() {
     if (hdrSize > g_pe.data->size()) hdrSize = g_pe.data->size();
     memcpy(g_pe.base, g_pe.data->data(), hdrSize);
     IMAGE_SECTION_HEADER* sect = IMAGE_FIRST_SECTION(g_pe.nt);
+    if (g_pe.nt->FileHeader.NumberOfSections > 96) return -2;
     for (int i = 0; i < g_pe.nt->FileHeader.NumberOfSections; i++) {
         if (sect[i].SizeOfRawData > 0) {
             size_t srcOff = sect[i].PointerToRawData;
@@ -785,12 +878,15 @@ static int sp_reloc() {
                 DWORD count = (rel->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
                 WORD* list = (WORD*)(rel + 1);
                 for (DWORD i = 0; i < count; i++) {
-                    if ((list[i] >> 12) == IMAGE_REL_BASED_DIR64) {
+                    WORD type = list[i] >> 12;
+                    if (type == IMAGE_REL_BASED_DIR64) {
                         size_t target = (size_t)rel->VirtualAddress + (list[i] & 0xFFF);
                         if (target + sizeof(size_t) <= g_pe.nt->OptionalHeader.SizeOfImage) {
                             size_t* p = (size_t*)((BYTE*)g_pe.base + target);
                             *p += g_pe.delta;
                         }
+                    } else if (type != IMAGE_REL_BASED_ABSOLUTE) {
+                        return -2;
                     }
                 }
                 rel = (IMAGE_BASE_RELOCATION*)((BYTE*)rel + rel->SizeOfBlock);
@@ -833,6 +929,7 @@ static int sp_import() {
                     thunk++;
                     orig++;
                 }
+                if (impLimit <= 0 && orig->u1.AddressOfData) return -2;
                 imp->OriginalFirstThunk = 0;
                 imp->Name = 0;
             }
@@ -850,18 +947,184 @@ static int sp_go() {
     return -1;
 }
 
-bool runInMem(const Bytes& data) {
+//  VEH
+static CRITICAL_SECTION g_vehLock;
+static uintptr_t g_vehBase;
+static size_t   g_vehSize;
+static uint64_t g_vehKey;
+static HANDLE   g_vehWatchdog;
+static volatile LONG g_vehStop;
+static PVOID    g_vehHandle;
+
+struct VehPage { uintptr_t addr; DWORD lastTick; };
+static VehPage g_vehCache[256];
+static int     g_vehCacheCnt;
+
+struct PageRange { DWORD pgStart; DWORD pgEnd; DWORD origProt; };
+static PageRange g_vehProt[96];
+static int       g_vehProtCnt;
+
+static DWORD sectToProt(DWORD chars) {
+    // map section characteristics to PAGE_* constant
+    bool ex = (chars & 0x20000000) != 0;
+    bool rd = (chars & 0x40000000) != 0;
+    bool wr = (chars & 0x80000000) != 0;
+    if (ex && rd && wr) return PAGE_EXECUTE_READWRITE;
+    if (ex && rd)       return PAGE_EXECUTE_READ;
+    if (ex && wr)       return PAGE_EXECUTE_READWRITE;
+    if (ex)             return PAGE_EXECUTE;
+    if (rd && wr)       return PAGE_READWRITE;
+    if (rd)             return PAGE_READONLY;
+    if (wr)             return PAGE_READWRITE;
+    return PAGE_READONLY;
+}
+
+static DWORD lookupOrigProt(uintptr_t pg) {
+    DWORD num = (DWORD)((pg - g_vehBase) >> 12);
+    for (int i = 0; i < g_vehProtCnt; i++)
+        if (num >= g_vehProt[i].pgStart && num <= g_vehProt[i].pgEnd)
+            return g_vehProt[i].origProt;
+    return PAGE_EXECUTE_READWRITE; // fallback
+}
+
+static void vehPageXor(BYTE* p, size_t sz, uint64_t k, uintptr_t addr) {
+    uint64_t s = k ^ (addr >> 12);
+    for (size_t i = 0; i < sz; i++) {
+        s = s * 0x9E3779B97F4A7C15ull + 0x517CC1B727220A95ull;
+        p[i] ^= (BYTE)(s >> 32);
+    }
+}
+
+static DWORD WINAPI vehWatchdogProc(LPVOID) {
+    while (!g_vehStop) {
+        Sleep(50);
+        EnterCriticalSection(&g_vehLock);
+        DWORD now = GetTickCount();
+        for (int i = 0; i < g_vehCacheCnt; ) {
+            if (now - g_vehCache[i].lastTick > 200) {
+                uintptr_t pg = g_vehCache[i].addr;
+                DWORD old;
+                // fence: stop all access, any faulting thread blocks in VEH on our CS
+                VirtualProtect((LPVOID)pg, 0x1000, PAGE_NOACCESS, &old);
+                VirtualProtect((LPVOID)pg, 0x1000, PAGE_READWRITE, &old);
+                vehPageXor((BYTE*)pg, 0x1000, g_vehKey, pg);
+                VirtualProtect((LPVOID)pg, 0x1000, PAGE_NOACCESS, &old);
+                g_vehCache[i] = g_vehCache[--g_vehCacheCnt];
+            } else { i++; }
+        }
+        LeaveCriticalSection(&g_vehLock);
+    }
+    return 0;
+}
+
+__attribute__((used)) static LONG CALLBACK vehHandler(EXCEPTION_POINTERS* ex) {
+    if (ex->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION)
+        return EXCEPTION_CONTINUE_SEARCH;
+    uintptr_t fault = (uintptr_t)ex->ExceptionRecord->ExceptionInformation[1];
+    if (fault < g_vehBase || fault >= g_vehBase + g_vehSize)
+        return EXCEPTION_CONTINUE_SEARCH;
+    uintptr_t pg = fault & ~(uintptr_t)0xFFF;
+    EnterCriticalSection(&g_vehLock);
+    // check if already decrypted (race)
+    for (int i = 0; i < g_vehCacheCnt; i++) {
+        if (g_vehCache[i].addr == pg) {
+            g_vehCache[i].lastTick = GetTickCount();
+            LeaveCriticalSection(&g_vehLock);
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+    }
+    DWORD old;
+    VirtualProtect((LPVOID)pg, 0x1000, PAGE_READWRITE, &old);
+    vehPageXor((BYTE*)pg, 0x1000, g_vehKey, pg);
+    VirtualProtect((LPVOID)pg, 0x1000, lookupOrigProt(pg), &old);
+    if (g_vehCacheCnt < 256) {
+        g_vehCache[g_vehCacheCnt].addr = pg;
+        g_vehCache[g_vehCacheCnt].lastTick = GetTickCount();
+        g_vehCacheCnt++;
+    } else {
+        // evict oldest
+        int oldest = 0;
+        for (int i = 1; i < 256; i++)
+            if (g_vehCache[i].lastTick < g_vehCache[oldest].lastTick) oldest = i;
+        uintptr_t evict = g_vehCache[oldest].addr;
+        // fence: stop all access, VEH blocked on our CS
+        VirtualProtect((LPVOID)evict, 0x1000, PAGE_NOACCESS, &old);
+        VirtualProtect((LPVOID)evict, 0x1000, PAGE_READWRITE, &old);
+        vehPageXor((BYTE*)evict, 0x1000, g_vehKey, evict);
+        VirtualProtect((LPVOID)evict, 0x1000, PAGE_NOACCESS, &old);
+        g_vehCache[oldest].addr = pg;
+        g_vehCache[oldest].lastTick = GetTickCount();
+    }
+    LeaveCriticalSection(&g_vehLock);
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static void vehCleanup() {
+    g_vehStop = 1;
+    if (g_vehWatchdog) { WaitForSingleObject(g_vehWatchdog, 2000); CloseHandle(g_vehWatchdog); g_vehWatchdog = NULL; }
+    RemoveVectoredExceptionHandler(g_vehHandle);
+    DeleteCriticalSection(&g_vehLock);
+}
+
+static int sp_veh() {
+    if (!g_pe.veh) return 5;
+    g_vehBase = (uintptr_t)g_pe.base;
+    g_vehSize = (g_pe.nt->OptionalHeader.SizeOfImage + 0xFFF) & ~0xFFF;
+    std::mt19937_64 rng(GetTickCount64() ^ (uint64_t)(uintptr_t)&rng);
+    g_vehKey = rng();
+    InitializeCriticalSection(&g_vehLock);
+    DWORD hdrEnd = (g_pe.nt->OptionalHeader.SizeOfHeaders + 0xFFF) & ~0xFFF;
+    g_vehProtCnt = 0;
+    IMAGE_SECTION_HEADER* sect = IMAGE_FIRST_SECTION(g_pe.nt);
+    int ns = g_pe.nt->FileHeader.NumberOfSections;
+    if (ns < 0) ns = 0; if (ns > 96) ns = 96;
+    for (int i = 0; i < ns; i++) {
+        if (sect[i].SizeOfRawData == 0) continue;
+        DWORD va = sect[i].VirtualAddress;
+        DWORD sz = sect[i].SizeOfRawData;
+        if (va >= g_vehSize) continue;
+        if (va + sz < va || va + sz > g_vehSize) sz = g_vehSize - va;
+        DWORD end = (va + sz + 0xFFF) & ~0xFFF;
+        if (end < va) continue;
+        // record protection for this section
+        DWORD prot = sectToProt(sect[i].Characteristics);
+        DWORD ps = va >> 12;
+        DWORD pe = (end - 1) >> 12;
+        if (g_vehProtCnt < 96) {
+            g_vehProt[g_vehProtCnt].pgStart  = ps;
+            g_vehProt[g_vehProtCnt].pgEnd    = pe;
+            g_vehProt[g_vehProtCnt].origProt = prot;
+            g_vehProtCnt++;
+        }
+        for (DWORD off = va & ~0xFFF; off < end; off += 0x1000) {
+            if (off < hdrEnd) continue; // skip header overlap
+            BYTE* p = (BYTE*)g_pe.base + off;
+            DWORD old;
+            VirtualProtect(p, 0x1000, PAGE_READWRITE, &old);
+            vehPageXor(p, 0x1000, g_vehKey, (uintptr_t)p);
+            VirtualProtect(p, 0x1000, PAGE_NOACCESS, &old);
+        }
+    }
+    g_vehHandle = AddVectoredExceptionHandler(1, vehHandler);
+    g_vehStop = 0;
+    g_vehWatchdog = CreateThread(NULL, 0, vehWatchdogProc, NULL, 0, NULL);
+    return 5;
+}
+
+bool runInMem(const Bytes& data, bool veh) {
     static PEStageFn stages[] = {
-        sp_hdr, sp_map, sp_reloc, sp_import, sp_go
+        sp_hdr, sp_map, sp_reloc, sp_import, sp_veh, sp_go
     };
     g_pe.data = &data;
     g_pe.base = nullptr;
+    g_pe.veh = veh;
     int stage = 0;
     while (stage >= 0) {
         if (stage >= (int)(sizeof(stages)/sizeof(stages[0]))) return false;
         noiseDecrypt();
         stage = stages[stage]();
     }
+    if (veh) vehCleanup();
     return stage == -1;
 }
 
@@ -889,16 +1152,93 @@ static int s_ld() {
     noiseDecrypt();
     g_st.blob = loadFile(g_st.self);
     if (g_st.blob.size() < sizeof(Tail) + 4) return -2;
-    g_st.off = *(DWORD*)&g_st.blob[g_st.blob.size() - 4];
+    uint64_t sk = 0x9E3779B97F4A7C15ull;
+    for (size_t i = 0x1000; i < g_st.blob.size() && i < 0x2000; i++)
+        sk = (sk ^ g_st.blob[i]) * 0x9E3779B97F4A7C15ull;
+    g_st.off = *(DWORD*)&g_st.blob[g_st.blob.size() - 4] ^ (DWORD)(sk & 0xFFFFFFFF);
     if (g_st.off + sizeof(Tail) > g_st.blob.size()) return -2;
     return 2;
 }
 static int s_prs() {
     noiseDecrypt();
     g_st.t = (Tail*)&g_st.blob[g_st.off];
-    if (memcmp(g_st.t->sig, _pd_sig, 8)) return -2;
-    if ((uint64_t)g_st.off + sizeof(Tail) + (uint64_t)g_st.t->vmCodeSz + (uint64_t)g_st.t->packSz + 4 != g_st.blob.size()) return -2;
+    // derive key from stub (.text, skip headers)
+    uint64_t stubKey = 0x9E3779B97F4A7C15ull;
+    for (size_t i = 0x1000; i < g_st.blob.size() && i < 0x2000; i++)
+        stubKey = (stubKey ^ g_st.blob[i]) * 0x9E3779B97F4A7C15ull;
+    // de-XOR metadata fields
+    g_st.t->origSz ^= (DWORD)(stubKey & 0xFFFFFFFF);
+    g_st.t->packSz ^= (DWORD)((stubKey >> 32) & 0xFFFFFFFF);
+    g_st.t->flags  ^= (BYTE)((stubKey >> 16) & 0xFF);
+    // de-XOR dispKey, canary, vmCodeSz
+    uint64_t realDispKey = g_st.t->dispKey ^ stubKey;
+    g_st.t->vmCodeSz ^= (DWORD)((stubKey >> 8) & 0xFFFFFFFF);
+    g_st.t->canaryCnt ^= (BYTE)(stubKey & 0xFF);
+    for (int si = 0; si < (int)sizeof(g_st.t->canaryOff); si++)
+        ((BYTE*)g_st.t->canaryOff)[si] ^= (BYTE)(stubKey >> ((si*7)&63));
+    for (int si = 0; si < (int)sizeof(g_st.t->canaryExp); si++)
+        g_st.t->canaryExp[si] ^= (BYTE)(stubKey >> ((si*11)&63));
+    // de-XOR sig with stubKey
+    char sigBuf[8]; memcpy(sigBuf, g_st.t->sig, 8);
+    for (int si = 0; si < 8; si++) sigBuf[si] ^= (BYTE)(stubKey >> (si*8));
+    if (memcmp(sigBuf, _pd_sig, 8)) return -2;
+    // restore dispKey
+    g_st.t->dispKey = realDispKey;
+
+    Bytes interleaved;
+    if (g_st.t->flags & FLAG_CHUNK) {
+        // decrypt chunk fields
+        int nChunks = g_st.t->chunkCnt ^ (BYTE)((stubKey >> 24) & 0xFF);
+        if (nChunks < 1 || nChunks > 4) return -2;
+        for (int si = 0; si < nChunks; si++)
+            g_st.t->chunkOff[si] ^= (DWORD)(stubKey >> ((si*11)&63));
+        for (int si = 0; si < nChunks; si++)
+            g_st.t->chunkSz[si] ^= (DWORD)(stubKey >> ((si*17)&63));
+        for (int si = 0; si < nChunks; si++)
+            g_st.t->chunkOrder[si] ^= (BYTE)(stubKey >> ((si*13)&63));
+        // read chunks from file
+        Bytes chunks[4];
+        for (int ci = 0; ci < nChunks; ci++) {
+            DWORD off = g_st.t->chunkOff[ci];
+            DWORD sz  = g_st.t->chunkSz[ci];
+            if (!sz) continue;
+            if (off < g_st.off + sizeof(Tail) || off + sz > g_st.blob.size() - 4) return -2;
+            chunks[ci].assign(g_st.blob.begin() + off, g_st.blob.begin() + off + sz);
+        }
+        // reassemble in logical order
+        for (int logical = 0; logical < nChunks; logical++) {
+            int phys = -1;
+            for (int j = 0; j < nChunks; j++)
+                if (g_st.t->chunkOrder[j] == logical) { phys = j; break; }
+            if (phys < 0) return -2;
+            if (chunks[phys].empty()) continue;
+            interleaved.insert(interleaved.end(), chunks[phys].begin(), chunks[phys].end());
+        }
+    } else {
+        // old format: interleaved overlay starts after Tail
+        size_t overlayEnd = g_st.blob.size() - 4;
+        for (size_t i = g_st.off + sizeof(Tail); i < overlayEnd; i++)
+            interleaved.push_back(g_st.blob[i]);
+    }
+    // de-interleave
+    {
+        Bytes deint;
+        for (size_t i = 0, fi = 0; i < interleaved.size(); i++, fi++) {
+            deint.push_back(interleaved[i]);
+            if ((fi % 3) == 2 && i + 1 < interleaved.size()) i++;
+        }
+        interleaved = std::move(deint);
+    }
+    // verify sizes
+    if (interleaved.size() != (size_t)g_st.t->vmCodeSz + (size_t)g_st.t->packSz) return -2;
+    // store in g_st.blob so pointers remain valid
+    g_st.blob.resize(g_st.off + sizeof(Tail));
+    g_st.blob.insert(g_st.blob.end(), interleaved.begin(), interleaved.end());
+    g_st.t = (Tail*)&g_st.blob[g_st.off];
     g_st.vmCodePtr = (BYTE*)(g_st.t + 1);
+    // decrypt VM bytecode
+    for (size_t vi = 0; vi < g_st.t->vmCodeSz; vi++)
+        g_st.vmCodePtr[vi] ^= (BYTE)(stubKey >> ((vi*3)&63));
     g_st.payPtr = g_st.vmCodePtr + g_st.t->vmCodeSz;
     g_st.pay = Bytes(g_st.payPtr, g_st.payPtr + g_st.t->packSz);
     return 3;
@@ -921,7 +1261,7 @@ static int s_dc() {
 }
 static int s_ex() {
     noiseDecrypt();
-    return runInMem(g_st.pay) ? -1 : -2;
+    return runInMem(g_st.pay, !!(g_st.t->flags & FLAG_VEH)) ? -1 : -2;
 }
 
 bool tryRun() {
@@ -979,7 +1319,7 @@ void scrambleSections(Bytes& data) {
     }
 }
 
-bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
+bool pack(const std::string& in, const std::string& out, bool vm, bool comp, bool veh) {
     Bytes orig = loadFile(in);
     if (orig.size() < 2 || orig[0] != 'M' || orig[1] != 'Z') { printf("error: '%s' is not a valid PE file\n", in.c_str()); return false; }
     printf("input: %zu bytes\n", orig.size());
@@ -989,7 +1329,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
         if (peOff + 6 <= orig.size()) {
             WORD machine = *(WORD*)(orig.data() + peOff + 4);
             if (machine == 0x014C)
-                printf("warning: 32-bit PE — TinyLoad only supports 64-bit, packing may fail\n");
+                printf("warning: 32-bit PE, packing may fail\n");
         }
     }
 
@@ -1006,6 +1346,9 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     BYTE opmap_enc[NUM_OPS] = {};
     BYTE subtables[4][8];
     Bytes vmCode;
+    uint32_t canOff[8] = {};
+    BYTE     canExp[8] = {};
+    BYTE     canCnt = 0;
 
     if (vm) {
         flags |= 2;
@@ -1031,18 +1374,54 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
                 if (v < NUM_OPS) opmap_enc[v] = (t << 6) | i;
             }
 
-        std::mt19937_64 rng2(GetTickCount64() ^ (uint64_t)(uintptr_t)&rng2);
+        LARGE_INTEGER qpc; QueryPerformanceCounter(&qpc);
+        std::mt19937_64 rng2(GetTickCount64() ^ (uint64_t)(uintptr_t)&rng2 ^ qpc.QuadPart);
         uint64_t key1 = rng2(), key2 = rng2();
 
-        vmCode = makeVmProgram(opmap_enc, key1, key2);
+        // canary corridor
+        {
+            uint32_t nCan = 8;
+            if (pay.size() < nCan * 2) nCan = (uint32_t)pay.size() > 0 ? 1 : 0;
+            if (nCan > 0) {
+                std::mt19937 crng((uint32_t)(key1 ^ (uint64_t)(uintptr_t)&pay));
+                uint32_t skipHdr = pay.size() > 0x400 ? 0x400 : 0;
+                uint32_t usable = (uint32_t)pay.size() - skipHdr;
+                uint32_t step = usable / (nCan + 1);
+                for (uint32_t c = 0; c < nCan; c++) {
+                    uint32_t base = skipHdr + step * (c + 1);
+                    uint32_t off = base + (crng() % (step > 0 ? step : 1));
+                    if (off >= pay.size()) off = (uint32_t)pay.size() - 1;
+                    canOff[c] = off;
+                }
+                std::shuffle(canOff, canOff + nCan, crng);
+                BYTE prev = 0;
+                for (uint32_t c = 0; c < nCan; c++) {
+                    BYTE actual = pay[canOff[c]];
+                    canExp[c] = actual ^ prev;
+                    prev = actual;
+                }
+            }
+            canCnt = (BYTE)nCan;
+        }
+
+        vmCode = makeVmProgram(opmap_enc, key1, key2, canOff, canExp, canCnt);
         vmEncryptPayload(pay, key1, key2);
         printf("vm encrypted: custom ISA, %zu bytes of bytecode\n", vmCode.size());
+    }
+
+    if (veh) {
+        flags |= FLAG_VEH;
     }
 
     char self[MAX_PATH];
     GetModuleFileNameA(NULL, self, MAX_PATH);
     Bytes stub = loadFile(self);
     if (stub.empty()) { printf("error: cannot read stub from self\n"); return false; }
+
+    // derive key from stub for overlay encryption (skip headers: use .text)
+    uint64_t stubKey = 0x9E3779B97F4A7C15ull;
+    for (size_t i = 0x1000; i < stub.size() && i < 0x2000; i++)
+        stubKey = (stubKey ^ stub[i]) * 0x9E3779B97F4A7C15ull;
 
     // encrypt dispatch offsets
     uint64_t dispKey = 0;
@@ -1059,11 +1438,8 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     }
 
     if (!saveFile(out, stub)) return false;
-    cloneRes(in, out);
+    // cloneRes disabled: LoadLibraryExA intermittently locks output file
     Bytes result = loadFile(out);
-    if (result.empty()) return false;
-
-    DWORD tailOff = (DWORD)result.size();
 
     Tail t;
     memcpy(t.sig, _pd_sig, 8);
@@ -1074,16 +1450,91 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
     t.dispKey = dispKey;
     memcpy(t.dispOff, encOff, sizeof(encOff));
     memcpy(t.subtables, subtables, sizeof(subtables));
+    t.canaryCnt = canCnt;
+    memcpy(t.canaryOff, canOff, sizeof(canOff));
+    memcpy(t.canaryExp, canExp, sizeof(canExp));
+    // hide signature with stubKey
+    for (int si = 0; si < 8; si++) t.sig[si] ^= (BYTE)(stubKey >> (si*8));
     // scramble subtables
     xorOpmap((BYTE*)t.subtables, t, vmCode.empty() ? nullptr : vmCode.data(), pay.data());
 
-    result.insert(result.end(), (BYTE*)&t, (BYTE*)&t + sizeof(t));
-    if (!vmCode.empty()) result.insert(result.end(), vmCode.begin(), vmCode.end());
-    result.insert(result.end(), pay.begin(), pay.end());
-    result.push_back(tailOff & 0xFF);
-    result.push_back((tailOff >> 8) & 0xFF);
-    result.push_back((tailOff >> 16) & 0xFF);
-    result.push_back((tailOff >> 24) & 0xFF);
+    t.flags |= FLAG_CHUNK; // set before encrypt
+
+    // encrypt sensitive Tail fields with stub-derived key
+    t.origSz ^= (DWORD)(stubKey & 0xFFFFFFFF);
+    t.packSz ^= (DWORD)((stubKey >> 32) & 0xFFFFFFFF);
+    t.flags  ^= (BYTE)((stubKey >> 16) & 0xFF);
+    t.dispKey ^= stubKey;
+    for (int si = 0; si < (int)sizeof(t.canaryOff); si++)
+        ((BYTE*)t.canaryOff)[si] ^= (BYTE)(stubKey >> ((si*7)&63));
+    for (int si = 0; si < (int)sizeof(t.canaryExp); si++)
+        t.canaryExp[si] ^= (BYTE)(stubKey >> ((si*11)&63));
+    t.canaryCnt ^= (BYTE)(stubKey & 0xFF);
+    t.vmCodeSz ^= (DWORD)((stubKey >> 8) & 0xFFFFFFFF);
+    // encrypt VM bytecode
+    for (size_t vi = 0; vi < vmCode.size(); vi++)
+        vmCode[vi] ^= (BYTE)(stubKey >> ((vi*3)&63));
+
+    DWORD tailOff = 0;
+
+    // build overlay: Tail first (non-interleaved), then payload split into 4 chunks with junk gaps
+    {
+        Bytes payload;
+        if (!vmCode.empty()) payload.insert(payload.end(), vmCode.begin(), vmCode.end());
+        payload.insert(payload.end(), pay.begin(), pay.end());
+
+        // interleave payload
+        Bytes interleaved;
+        interleaved.reserve(payload.size() + payload.size() / 3 + 4);
+        for (size_t i = 0; i < payload.size(); i++) {
+            interleaved.push_back(payload[i]);
+            if ((i % 3) == 2) interleaved.push_back(0x00);
+        }
+
+        t.chunkCnt = 4;
+        size_t chunkBase = interleaved.size() / t.chunkCnt;
+        size_t chunkRem  = interleaved.size() % t.chunkCnt;
+        uint32_t rawOff[4] = {}, rawSz[4] = {};
+        uint8_t  rawOrder[4] = {0, 1, 2, 3};
+
+        std::mt19937 crng((uint32_t)(stubKey ^ result.size()));
+        std::shuffle(rawOrder, rawOrder + 4, crng);
+
+        // write Tail placeholder
+        tailOff = (DWORD)result.size();
+        size_t tailPos = result.size();
+        result.resize(result.size() + sizeof(t));
+
+        for (int ci = 0; ci < 4; ci++) {
+            size_t gapSz = 128 + (crng() % 513);
+            for (size_t j = 0; j < gapSz; j++) result.push_back((BYTE)(crng() & 0xFF));
+
+            rawOff[ci] = (DWORD)result.size();
+            uint8_t logical = rawOrder[ci];
+            size_t start = logical * chunkBase + (logical < chunkRem ? logical : chunkRem);
+            size_t end   = start + chunkBase + (logical < chunkRem ? 1 : 0);
+            if (start >= interleaved.size()) { rawSz[ci] = 0; continue; }
+            if (end > interleaved.size()) end = interleaved.size();
+            rawSz[ci] = (DWORD)(end - start);
+            result.insert(result.end(), interleaved.begin() + start, interleaved.begin() + end);
+        }
+
+        for (int ci = 0; ci < 4; ci++) { t.chunkOff[ci] = rawOff[ci]; t.chunkSz[ci] = rawSz[ci]; t.chunkOrder[ci] = rawOrder[ci]; }
+
+        // encrypt chunk fields
+        for (int si = 0; si < 4; si++) t.chunkOff[si] ^= (DWORD)(stubKey >> ((si*11)&63));
+        for (int si = 0; si < 4; si++) t.chunkSz[si]  ^= (DWORD)(stubKey >> ((si*17)&63));
+        for (int si = 0; si < 4; si++) t.chunkOrder[si] ^= (BYTE)(stubKey >> ((si*13)&63));
+        t.chunkCnt ^= (BYTE)((stubKey >> 24) & 0xFF);
+
+        memcpy(&result[tailPos], &t, sizeof(t));
+    }
+    // encrypt tail offset
+    DWORD encTailOff = tailOff ^ (DWORD)(stubKey & 0xFFFFFFFF);
+    result.push_back(encTailOff & 0xFF);
+    result.push_back((encTailOff >> 8) & 0xFF);
+    result.push_back((encTailOff >> 16) & 0xFF);
+    result.push_back((encTailOff >> 24) & 0xFF);
 
     scrambleSections(result);
 
@@ -1095,23 +1546,49 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp) {
 int main(int argc, char* argv[]) {
     if (tryRun()) return 0;
     std::string in, out;
-    bool vm = false, comp = false;
+    bool vm = false, comp = false, veh = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--i" && i + 1 < argc) { in = argv[++i]; if (in.size() < 4 || _stricmp(in.c_str() + in.size() - 4, ".exe")) in += ".exe"; }
         else if (a == "--o" && i + 1 < argc) { out = argv[++i]; if (out.size() < 4 || _stricmp(out.c_str() + out.size() - 4, ".exe")) out += ".exe"; }
         else if (a == "--vm") vm = true;
         else if (a == "--c") comp = true;
+        else if (a == "--veh") veh = true;
     }
     if (in.empty()) {
-        puts("TinyLoad v6.0\nUsage: TinyLoad.exe --i <input> [--o <output>] [--vm] [--c]\nFlags:\n  --i <file>   Input exe to pack\n  --o <file>   Output path (default: input_packed.exe)\n  --vm         Custom VM encryption\n  --c          LZ77 compression\nExamples:\n  TinyLoad.exe --i myapp.exe --c\n  TinyLoad.exe --i myapp.exe --o packed.exe --vm --c\n  TinyLoad.exe --i myapp.exe --vm\nNote: You need at least one of --vm or --c.");
+        // help strings XOR'ed 
+        static const BYTE _eh[] = {
+            0x71,0x7B,0x67,0x67,0x79,0x6C,0x7E,0x7C,0x2F,0x34,0x0B,0x0A,0x01,0x72,0x6F,0x60,
+            0x7D,0x76,0x2F,0x64,0x67,0x57,0x67,0x7E,0x7C,0x18,0x3B,0x0A,0x01,0x01,0x69,0x2B,
+            0x28,0x3E,0x39,0x73,0x6E,0x4B,0x5D,0x5D,0x49,0x57,0x36,0x27,0x26,0x38,0x78,0x76,
+            0x7B,0x6D,0x20,0x34,0x73,0x6E,0x70,0x34,0x67,0x2F,0x77,0x74,0x49,0x5C,0x43,0x4F,
+            0x3A,0x37,0x2D,0x2F,0x21,0x6B,0x77,0x71,0x3B,0x6E,0x4B,0x55,0x5A,0x4B,0x47,0x3A,
+            0x28,0x21,0x37,0x2B,0x7B,0x7F,0x67,0x3C,0x73,0x49,0x57,0x54,0x41,0x41,0x42,0x2D,
+            0x39,0x3E,0x3B,0x73,0x79,0x3A,0x58,0x48,0x4F,0x5B,0x44,0x41,0x01,0x6E,0x0B,0x1D,
+            0x0B,0x41,0x54,0x46,0x50,0x45,0x42,0x56,0x3B,0x6E,0x2F,0x67,0x61,0x54,0x4C,0x29,
+            0x24,0x3E,0x6F,0x6B,0x75,0x3C,0x74,0x4F,0x45,0x5B,0x43,0x37,0x3E,0x78,0x7A,0x04,
+            0x72,0x72,0x7B,0x67,0x7E,0x4F,0x5B,0x55,0x01,0x3C,0x63,0x79,0x78,0x6F,0x6B,0x30,
+            0x5A,0x50,0x59,0x0D,0x01,0x73,0x76,0x6B,0x69,0x3E,0x6F,0x69,0x6C,0x61,0x67,0x2C,
+            0x5D,0x41,0x43,0x4B,0x09,0x32,0x7B,0x68,0x6C,0x1B,0x3E,0x2F,0x23,0x2B,0x3F,0x2F,
+            0x73,0x20,0x52,0x4B,0x54,0x4B,0x30,0x23,0x27,0x38,0x8A,0x96,0x94,0x9B,0x97,0x97,0x99
+        };
+        char buf[512]; uint8_t k = 0x5D;
+        for (int i = 0; i < (int)sizeof(_eh); i++) buf[i] = _eh[i] ^ (uint8_t)(k + i);
+        buf[sizeof(_eh)] = 0;
+        puts(buf);
         return 1;
     }
     if (out.empty()) {
         auto d = in.rfind('.');
         out = d != std::string::npos ? in.substr(0, d) + "_packed" + in.substr(d) : in + "_packed.exe";
     }
-    if (!vm && !comp) { puts("need --vm and/or --c"); return 1; }
-    return pack(in, out, vm, comp) ? 0 : 1;
+    if (!vm && !comp && !veh) {
+        static const BYTE _en[] = {0x7D,0x78,0x70,0x7F,0x2C,0x38,0x34,0x27,0x28,0x3C,0x2C,0x2F,0x72,0x7E,0x75,0x6F,0x2E,0x2A,0x29,0x7E,0x7A,0x7A,0x77,0x74,0x7B,0x7C,0x6D,0x6B,0x01};
+        char b2[32]; uint8_t k2 = 0x3F;
+        for (int i = 0; i < (int)sizeof(_en); i++) b2[i] = _en[i] ^ (uint8_t)(k2 + i);
+        b2[sizeof(_en)] = 0;
+        puts(b2);
+        return 1;
+    }
+    return pack(in, out, vm, comp, veh) ? 0 : 1;
 }
-
