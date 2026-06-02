@@ -5,7 +5,7 @@
 ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-2ed573?style=flat&logo=checkmarx&logoColor=white)
 [![Awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/gmh5225/awesome-game-security)
 
-simple PE/crypter for Windows. compresses and encrypts executables with a custom virtual machine into a self-extracting stub.
+simple PE packer/crypter for Windows. compresses and encrypts executables with a custom virtual machine into a self-extracting stub.
 
 ## how it works
 
