@@ -1,5 +1,7 @@
 ## Contributing
 
+![build](https://github.com/iamsopotatoe-coder/TinyLoad/actions/workflows/build.yml/badge.svg)
+
 TinyLoad is one cpp file by design. I want to keep it that way.
 
 **What I'm looking for:**
