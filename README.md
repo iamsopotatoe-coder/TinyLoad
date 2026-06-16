@@ -1,19 +1,16 @@
 <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
-# TinyLoad V7.0
-![Version](https://img.shields.io/badge/version-v7.0-e84393?style=flat&logo=cplusplus&logoColor=white&labelColor=0d0d0d)
+# TinyLoad V7.1
+![Version](https://img.shields.io/badge/version-v7.1-e84393?style=flat&logo=cplusplus&logoColor=white&labelColor=0d0d0d)
 ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-2ed573?style=flat&logo=checkmarx&logoColor=white)
 [![Awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/gmh5225/awesome-game-security)
 
-simple PE packer/crypter for Windows. compresses and encrypts executables with a custom virtual machine into a self-extracting stub.
+simple PE packer/crypter for Windows. compresses and encrypts executables with a custom virtual machine into a self extracting stub.
 
 ## how it works
 
 TinyLoad appends your compressed payload to a copy of itself. when the packed exe runs it uses a custom VM interpreter, executes the decryption bytecode against the payload, then loads and runs it directly in RAM. every time you pack a file the VM opcodes are randomly changed and put into 4 independently keyed tables. Everything is in one c++ file and has no dependencies!
 
-Workflow:
-
-<img width="720" height="1454" alt="workflow!" src="https://github.com/user-attachments/assets/e51e3556-edb9-43f2-a85e-de5323b0403f" />
 
 ## download
 
@@ -59,19 +56,19 @@ you need at least one of `--vm`, `--c`, or `--veh`.
 
 ## compression
 
-custom LZ77 with hash-chain matching, 64KB sliding window, and lazy evaluation. typically gets decent ratios on PE files since they have a lot of repeated structure. compression runs on the raw input first, then VM encryption is applied on top so patterns in the compressed stream are also hidden.
+custom LZ77 with hash chain matching, 64KB sliding window, and lazy evaluation. typically gets decent ratios on PE files since they have a lot of repeated structure. compression runs on the raw input first, then VM encryption is applied on top so patterns in the compressed stream are also hidden.
 
 ## vm encryption
 
-v7 uses a custom 28-opcode virtual machine. the opcode table is split into four 8-entry subtables at pack time — each XOR-encrypted with an independent key derived from different parts of the payload and VM bytecode.
+v7 uses a custom 28 opcode virtual machine. the opcode table is split into four 8 entry subtables at pack time, each XOR'd with an independent key derived from different parts of the payload and VM bytecode.
 
-the cipher itself is a 128-bit stream cipher using rotl/rotr key mixing, run entirely through the VM so there's no native decryption loop to fingerprint.
+the cipher itself is a 128 bit stream cipher using rotl/rotr key mixing, run entirely through the VM so theres no native decryption loop to fingerprint.
 
 ## control flow obfuscation
 
-v7 flattens every major function through indirect dispatch tables. the self-extraction entry point is broken into 6 stages called through a function pointer array. the PE loader is split into 5 stages using the same pattern.
+v7 flattens every major function through indirect dispatch tables. the self extraction entry point is broken into 6 stages called through a function pointer array. the PE loader is split into 5 stages using the same pattern.
 
-string decryption noise is scattered throughout: all encrypted strings are pre-decrypted once at startup, then `noiseDecrypt()` fires at random points.
+string decryption noise is scattered throughout: all encrypted strings are pre decrypted once at startup, then `noiseDecrypt()` fires at random points.
 
 the VM dispatch table itself is never plaintext in the packed binary. pack time reads live label offsets from the running stub process, encrypts them with a random key, and stores them in the appended tail. the packed stub decrypts and recomputes the dispatch at runtime.
 
@@ -79,13 +76,19 @@ the VM dispatch table itself is never plaintext in the packed binary. pack time 
 
 v7 redirects critical payload imports (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) through stub resident wrappers. after loading, the import directory is wiped.
 
-## veh page-fault decryption
+## dual thread key recombination
 
-`--veh` maps all PE section pages as PAGE_NOACCESS. a vectored exception handler decrypts pages on first access and restores their original section protection (PAGE_EXECUTE_READ for .text, PAGE_READONLY for .rdata, etc.). a watchdog thread re-encrypts pages after 200ms of inactivity with a 256-slot LRU cache. memory dumps capture only recently-accessed pages.
+v7.1 upgrades overlay encryption from XOR to XXTEA with a 128 bit key split across two threads. Thread A owns key words 0 and 1, Thread B owns words 2 and 3 — each encoded with independent XOR constants. the full key only exists transiently inside a `WaitForSingleObject` fence during `xxteaDecrypt()`, then all key material is re encoded.
+
+
+## veh page fault decryption
+
+`--veh` maps all PE section pages as PAGE_NOACCESS. a vectored exception handler decrypts pages on first access and restores their original section protection (PAGE_EXECUTE_READ for .text, PAGE_READONLY for .rdata, etc.). a watchdog thread re encrypts pages after 200ms of inactivity with a 256-slot LRU cache. memory dumps capture only recently accessed pages.
+
 
 Graph:
 
-<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/e07c1f38-1063-4564-8d7c-d75275d2125f" />
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/2b307f82-845f-442c-ba21-12b7a46efee1" />
 
 ## license
 
@@ -97,6 +100,7 @@ MIT
 - If you want to suggest any improvements or future updates please open an issue.
 - if you use it, a star helps a lot <3
 - Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
+- Tinyload v7.1 adds XXTEA overlay encryption, dual thread key recombination, Tail field randomisation, and anti debug improvements.
 - Please do not use this tool to pack any malicious software or malware, it is intended to be used for legitimate purposes.
 - Star History:
 
