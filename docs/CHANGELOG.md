@@ -1,5 +1,13 @@
 # Changelog
 
+## v7.1
+
+* XXTEA overlay encryption payload encryption upgraded from XOR to XXTEA (Corrected Block TEA).
+* dual thread key recombination: 128-bit XXTEA key split across two threads. Thread A owns k0,k1; Thread B owns k2,k3. Full key only exists transiently inside a WaitForSingleObject fence, then destroyed.
+* Tail field randomization: overlay Tail serialized field by field in Fisher Yates shuffled order per build. Guard marker bracketed serialization with field IDs.
+* Anti debug improvements: PEB BeingDebugged (offset +2) and NtGlobalFlag (offset +0xBC, 0x70 mask) checked before Win32 APIs. Catches ring 3 debuggers that patch IsDebuggerPresent.
+* PE compatibility improvements: Section bounds integer overflow guards. Import Name/FirstThunk/OriginalFirstThunk validated against SizeOfImage. DLL count capped at 256.
+
 ## v7.0
 
 * Encrypted product strings: help text, CLI flags, and version strings XOR-encrypted at rest.
