@@ -1,4 +1,4 @@
-// Tinyload v7.0, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
+// Tinyload v7.1, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
 #include <windows.h>
 #include <vector>
 #include <string>
@@ -83,16 +83,105 @@ __attribute__((noinline)) __attribute__((used)) static void noiseDecrypt() {
     sdec2((char*)junk, g_noise[idx].enc, g_noise[idx].n, g_noise[idx].k);
 }
 
-__attribute__((noinline)) bool isDebugged() {
-    // go away windbg
-    if (IsDebuggerPresent()) {
-        return true;
+//dual thread key recombination
+struct PxTR_Context {
+    DWORD k[4];          // [0,1] from Thread A, [2,3] from Thread B
+    HANDLE fenceEvent;
+    BYTE* target;
+    SIZE_T length;
+};
+
+#define XXTEA_DELTA 0x9E3779B9
+
+#define XXTEA_MX (((z>>5^y<<2)+(y>>3^z<<4))^((sum^y)+(ctx->k[(p&3)^e]^z)))
+static void xxteaDecrypt(PxTR_Context* ctx, DWORD* v, int n) {
+    DWORD y = v[0], z, sum = (DWORD)((6 + 52/n) * (uint64_t)XXTEA_DELTA);
+    unsigned p, rounds = 6 + 52/n, e;
+    do {
+        e = (sum >> 2) & 3;
+        for (p = n - 1; p > 0; p--) {
+            z = v[p - 1];
+            y = v[p] -= XXTEA_MX;
+        }
+        z = v[n - 1];
+        y = v[0] -= XXTEA_MX;
+        sum -= XXTEA_DELTA;
+    } while (--rounds);
+}
+#undef XXTEA_MX
+
+// Encrypt key is passed as explicit array
+#define XXTEA_MX (((z>>5^y<<2)+(y>>3^z<<4))^((sum^y)+(key[(p&3)^e]^z)))
+static void xxteaEncrypt(DWORD* v, int n, const DWORD key[4]) {
+    DWORD y, z, sum = 0;
+    unsigned p, rounds = 6 + 52/n, e;
+    z = v[n - 1];
+    do {
+        sum += XXTEA_DELTA;
+        e = (sum >> 2) & 3;
+        for (p = 0; p < n - 1; p++) {
+            y = v[p + 1];
+            z = v[p] += XXTEA_MX;
+        }
+        y = v[0];
+        z = v[n - 1] += XXTEA_MX;
+    } while (--rounds);
+}
+#undef XXTEA_MX
+#undef XXTEA_DELTA
+
+// Encoded key words 
+__attribute__((section(".pxkey")))
+static volatile struct {
+    DWORD guard1;
+    DWORD k0, k1, k2, k3;
+    DWORD guard2;
+} _pxBlock = { 0xC0DE1337, 0xFEEDF00D, 0xCAFEBABE, 0xDEADBEEF, 0x8BADF00D, 0xB007DEAD };  //james bond reference :D
+static DWORD _pxRead(int i) { volatile DWORD _keep = _pxBlock.guard2; return ((&_pxBlock.k0)[i]) ^ (_keep & 0); }
+
+static DWORD WINAPI PxTR_ThreadA(LPVOID p) {
+    PxTR_Context* ctx = (PxTR_Context*)p;
+    // decode Thread A's key halves
+    DWORD k0 = _pxRead(0) ^ 0xFEEDF00D;
+    DWORD k1 = _pxRead(1) ^ 0xCAFEBABE;
+    WaitForSingleObject(ctx->fenceEvent, INFINITE);
+    // recombine transiently
+    ctx->k[0] = k0; ctx->k[1] = k1;
+    // fall back to XOR for short/remainder
+    SIZE_T nWords = ctx->length / 4;
+    if (nWords >= 2) {
+        xxteaDecrypt(ctx, (DWORD*)ctx->target, (int)nWords);
+    } else if (ctx->length > 0) {
+        DWORD tailKey = k0 ^ k1 ^ ctx->k[2] ^ ctx->k[3];
+        for (size_t i = 0; i < ctx->length; i++)
+            ctx->target[i] ^= (BYTE)(tailKey >> ((i & 3) * 8));
     }
+    // scramble all key material
+    _pxBlock.k0 = 0; _pxBlock.k1 = 0;
+    ctx->k[0] = 0; ctx->k[1] = 0; ctx->k[2] = 0; ctx->k[3] = 0;
+    return 0;
+}
+
+static DWORD WINAPI PxTR_ThreadB(LPVOID p) {
+    PxTR_Context* ctx = (PxTR_Context*)p;
+    ctx->k[2] = _pxRead(2) ^ 0xDEADBEEF;
+    ctx->k[3] = _pxRead(3) ^ 0x8BADF00D;
+    _pxBlock.k2 = 0; _pxBlock.k3 = 0;
+    SetEvent(ctx->fenceEvent);
+    return 0;
+}
+
+__attribute__((noinline)) bool isDebugged() {
+    // PEB checks (x64)
+    BYTE* peb = (BYTE*)__readgsqword(0x60);
+    if (peb) {
+        if (*(peb + 2)) return true;           // BeingDebugged
+        if (*(DWORD*)(peb + 0xBC) & 0x70) return true; // NtGlobalFlag
+    }
+    if (IsDebuggerPresent()) return true;
     BOOL remote = FALSE;
     CheckRemoteDebuggerPresent(GetCurrentProcess(), &remote);
-    if (remote) {
-        return true;
-    }
+    if (remote) return true;
     return false;
 }
 
@@ -125,6 +214,71 @@ struct Tail {
     uint8_t  chunkCnt;
 };
 #pragma pack(pop)
+
+#define TAIL_SERIALIZED_SZ (sizeof(Tail) + TF_COUNT * 3)
+
+// Tail field table for shuffled serialization
+enum { TF_SIG, TF_ORIGSZ, TF_PACKSZ, TF_FLAGS, TF_DISPOFF, TF_SUBTABLES,
+       TF_VMCODESZ, TF_DISPKEY, TF_CANARYOFF, TF_CANARYEXP, TF_CANARYCNT,
+       TF_CHUNKOFF, TF_CHUNKSZ, TF_CHUNKORDER, TF_CHUNKCNT, TF_COUNT };
+struct TailField { uint8_t id; uint16_t off; uint16_t sz; };
+static const TailField g_tailFields[TF_COUNT] = {
+    {TF_SIG,        offsetof(Tail,sig),        sizeof(((Tail*)0)->sig)},
+    {TF_ORIGSZ,     offsetof(Tail,origSz),     sizeof(((Tail*)0)->origSz)},
+    {TF_PACKSZ,     offsetof(Tail,packSz),     sizeof(((Tail*)0)->packSz)},
+    {TF_FLAGS,      offsetof(Tail,flags),      sizeof(((Tail*)0)->flags)},
+    {TF_DISPOFF,    offsetof(Tail,dispOff),    sizeof(((Tail*)0)->dispOff)},
+    {TF_SUBTABLES,  offsetof(Tail,subtables),  sizeof(((Tail*)0)->subtables)},
+    {TF_VMCODESZ,   offsetof(Tail,vmCodeSz),   sizeof(((Tail*)0)->vmCodeSz)},
+    {TF_DISPKEY,    offsetof(Tail,dispKey),    sizeof(((Tail*)0)->dispKey)},
+    {TF_CANARYOFF,  offsetof(Tail,canaryOff),  sizeof(((Tail*)0)->canaryOff)},
+    {TF_CANARYEXP,  offsetof(Tail,canaryExp),  sizeof(((Tail*)0)->canaryExp)},
+    {TF_CANARYCNT,  offsetof(Tail,canaryCnt),  sizeof(((Tail*)0)->canaryCnt)},
+    {TF_CHUNKOFF,   offsetof(Tail,chunkOff),   sizeof(((Tail*)0)->chunkOff)},
+    {TF_CHUNKSZ,    offsetof(Tail,chunkSz),    sizeof(((Tail*)0)->chunkSz)},
+    {TF_CHUNKORDER, offsetof(Tail,chunkOrder), sizeof(((Tail*)0)->chunkOrder)},
+    {TF_CHUNKCNT,   offsetof(Tail,chunkCnt),   sizeof(((Tail*)0)->chunkCnt)},
+};
+
+static Bytes serializeTail(const Tail& t, uint32_t seed) {
+    Bytes out;
+    out.reserve(512);
+    int order[TF_COUNT];
+    for (int i = 0; i < TF_COUNT; i++) order[i] = i;
+    // Fisher Yates
+    uint32_t s = seed;
+    for (int i = TF_COUNT - 1; i > 0; i--) {
+        s = s * 1103515245 + 12345;
+        int j = (int)(((uint64_t)s * (i + 1)) >> 32);
+        int tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+    }
+    for (int fi = 0; fi < TF_COUNT; fi++) {
+        const auto& f = g_tailFields[order[fi]];
+        out.push_back(f.id);
+        out.push_back(f.sz & 0xFF);
+        out.push_back((f.sz >> 8) & 0xFF);
+        out.insert(out.end(), (BYTE*)&t + f.off, (BYTE*)&t + f.off + f.sz);
+    }
+    return out;
+}
+
+static bool parseTail(const Bytes& data, size_t pos, Tail& t, size_t endPos) {
+    memset(&t, 0, sizeof(t));
+    int fieldsFound = 0;
+    while (pos + 3 <= endPos && fieldsFound < TF_COUNT) {
+        uint8_t id = data[pos];
+        uint16_t sz = data[pos + 1] | ((uint16_t)data[pos + 2] << 8);
+        pos += 3;
+        if (pos + sz > endPos) return false;
+        if (id >= TF_COUNT) return false;
+        const auto& f = g_tailFields[id];
+        if (sz != f.sz) return false;
+        memcpy((BYTE*)&t + f.off, &data[pos], sz);
+        pos += sz;
+        fieldsFound++;
+    }
+    return fieldsFound == TF_COUNT;
+}
 
 // per-subtable keys
 static void xorOpmap(BYTE* sub, const Tail& t, const BYTE* vmCode, const BYTE* pay) {
@@ -710,7 +864,7 @@ Bytes makeVmProgram(const BYTE* enc, uint64_t key1, uint64_t key2,
     int opqEnd = (int)bc.size();
     { int32_t off = opqEnd - (opqPatch + 4); memcpy(&bc[opqPatch], &off, 4); }
 
-    // xor-self -> 0
+    // xor self -> 0
     eOp(bc,enc,LDI_I); eR(bc,6); e64(bc,0xDEADBEEFCAFEBABEull);
     eOp(bc,enc,XOR_I); eR(bc,6); eR(bc,6);
     eOp(bc,enc,LDI_I); eR(bc,7); e64(bc,1);
@@ -907,12 +1061,14 @@ static int sp_hdr() {
     if (g_pe.data->size() < sizeof(IMAGE_DOS_HEADER)) return -2;
     g_pe.dos = (IMAGE_DOS_HEADER*)g_pe.data->data();
     if (g_pe.dos->e_magic != IMAGE_DOS_SIGNATURE) return -2;
-    if (g_pe.dos->e_lfanew <= 0) return -2;
-    if ((DWORD) g_pe.dos->e_lfanew + sizeof(IMAGE_NT_HEADERS64) > g_pe.data->size()) return -2;
+    if (g_pe.dos->e_lfanew <= 0 || (DWORD)g_pe.dos->e_lfanew > g_pe.data->size() - sizeof(IMAGE_NT_HEADERS64)) return -2;
     g_pe.nt = (IMAGE_NT_HEADERS64*)(g_pe.data->data() + g_pe.dos->e_lfanew);
     if (g_pe.nt->Signature != IMAGE_NT_SIGNATURE) return -2;
     if (g_pe.nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64) return -2;
-    if (g_pe.nt->OptionalHeader.SizeOfImage > 0x40000000 || g_pe.nt->OptionalHeader.SizeOfImage == 0) return -2;
+    if (g_pe.nt->FileHeader.NumberOfSections > 96 || g_pe.nt->FileHeader.NumberOfSections == 0) return -2;
+    DWORD sio = g_pe.nt->OptionalHeader.SizeOfImage;
+    if (sio > 0x40000000 || sio == 0 || sio < g_pe.nt->OptionalHeader.SizeOfHeaders) return -2;
+    if (g_pe.nt->OptionalHeader.SizeOfHeaders > g_pe.data->size()) return -2;
     return 1;
 }
 static int sp_map() {
@@ -924,15 +1080,17 @@ static int sp_map() {
     }
     memcpy(g_pe.base, g_pe.data->data(), hdrSize);
     IMAGE_SECTION_HEADER* sect = IMAGE_FIRST_SECTION(g_pe.nt);
-    if (g_pe.nt->FileHeader.NumberOfSections > 96) return -2;
-    for (int i = 0; i < g_pe.nt->FileHeader.NumberOfSections; i++) {
-        if (sect[i].SizeOfRawData > 0) {
-            size_t srcOff = sect[i].PointerToRawData;
-            size_t dstOff = sect[i].VirtualAddress;
-            if (srcOff + sect[i].SizeOfRawData <= g_pe.data->size() && dstOff + sect[i].SizeOfRawData <= g_pe.nt->OptionalHeader.SizeOfImage) {
-                memcpy((BYTE*)g_pe.base + dstOff, g_pe.data->data() + srcOff, sect[i].SizeOfRawData);
-            }
-        }
+    int ns = g_pe.nt->FileHeader.NumberOfSections;
+    for (int i = 0; i < ns; i++) {
+        if (sect[i].SizeOfRawData == 0) continue;
+        DWORD srcOff = sect[i].PointerToRawData;
+        DWORD dstOff = sect[i].VirtualAddress;
+        DWORD sz     = sect[i].SizeOfRawData;
+        if (srcOff + sz < srcOff) continue; // overflow
+        if (dstOff + sz < dstOff) continue;
+        if (srcOff + sz > g_pe.data->size()) continue;
+        if (dstOff + sz > g_pe.nt->OptionalHeader.SizeOfImage) continue;
+        memcpy((BYTE*)g_pe.base + dstOff, g_pe.data->data() + srcOff, sz);
     }
     return 2;
 }
@@ -967,14 +1125,21 @@ static int sp_reloc() {
 }
 static int sp_import() {
     auto* impDir = &g_pe.nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (impDir->Size > 0 && impDir->VirtualAddress < g_pe.nt->OptionalHeader.SizeOfImage) {
+    DWORD imgSz = g_pe.nt->OptionalHeader.SizeOfImage;
+    if (impDir->Size > 0 && impDir->VirtualAddress < imgSz) {
         auto* imp = (IMAGE_IMPORT_DESCRIPTOR*)((BYTE*)g_pe.base + impDir->VirtualAddress);
         BYTE* impEnd = (BYTE*)g_pe.base + impDir->VirtualAddress + impDir->Size;
-        while ((BYTE*)(imp + 1) <= impEnd && imp->Name) {
+        int dllCount = 0;
+        while ((BYTE*)(imp + 1) <= impEnd && imp->Name && dllCount < 256) {
+            dllCount++;
+            if (imp->Name >= imgSz) { imp++; continue; }
             HMODULE mod = LoadLibraryA((char*)((BYTE*)g_pe.base + imp->Name));
             if (mod) {
+                if (imp->FirstThunk >= imgSz) { imp++; continue; }
                 auto* thunk = (IMAGE_THUNK_DATA64*)((BYTE*)g_pe.base + imp->FirstThunk);
-                auto* orig = (IMAGE_THUNK_DATA64*)((BYTE*)g_pe.base + (imp->OriginalFirstThunk ? imp->OriginalFirstThunk : imp->FirstThunk));
+                DWORD oth = imp->OriginalFirstThunk ? imp->OriginalFirstThunk : imp->FirstThunk;
+                if (oth >= imgSz) { imp++; continue; }
+                auto* orig = (IMAGE_THUNK_DATA64*)((BYTE*)g_pe.base + oth);
                 int impLimit = 10000;
                 while (orig->u1.AddressOfData && impLimit-- > 0) {
                     if (IMAGE_SNAP_BY_ORDINAL64(orig->u1.Ordinal)) {
@@ -1154,7 +1319,7 @@ static int sp_veh() {
     g_vehProtCnt = 0;
     IMAGE_SECTION_HEADER* sect = IMAGE_FIRST_SECTION(g_pe.nt);
     int ns = g_pe.nt->FileHeader.NumberOfSections;
-    // std::clamp here?
+    // std::clamp here
     if (ns < 0) ns = 0; if (ns > 96) ns = 96;
     for (int i = 0; i < ns; i++) {
         if (sect[i].SizeOfRawData == 0) continue;
@@ -1225,35 +1390,37 @@ static int s_chk() {
     initStrings();
     if (isDebugged()) return -2;
     noiseDecrypt();
-    // Hide syscall here also?
+    // TODO: direct syscall for NtQueryInformationProcess to bypass IAT hooks
     GetModuleFileNameA(NULL, g_st.self, MAX_PATH);
     return 1;
 }
 static int s_ld() {
     noiseDecrypt();
     g_st.blob = loadFile(g_st.self);
-    if (g_st.blob.size() < sizeof(Tail) + 4) return -2;
+    if (g_st.blob.size() < TAIL_SERIALIZED_SZ + 4) return -2;
     uint64_t sk = 0x9E3779B97F4A7C15ull;
     for (size_t i = 0x1000; i < g_st.blob.size() && i < 0x2000; i++) {
         sk = (sk ^ g_st.blob[i]) * 0x9E3779B97F4A7C15ull;
     }
     g_st.off = *(DWORD*)&g_st.blob[g_st.blob.size() - 4] ^ (DWORD)(sk & 0xFFFFFFFF);
-    if (g_st.off + sizeof(Tail) > g_st.blob.size()) return -2;
+    if (g_st.off + TAIL_SERIALIZED_SZ > g_st.blob.size()) return -2;
     return 2;
 }
 static int s_prs() {
     noiseDecrypt();
-    g_st.t = (Tail*)&g_st.blob[g_st.off];
+    static Tail _ts;
+    if (!parseTail(g_st.blob, g_st.off, _ts, g_st.off + TAIL_SERIALIZED_SZ)) return -2;
+    g_st.t = &_ts;
     // derive key from stub (.text, skip headers)
     uint64_t stubKey = 0x9E3779B97F4A7C15ull;
     for (size_t i = 0x1000; i < g_st.blob.size() && i < 0x2000; i++) {
         stubKey = (stubKey ^ g_st.blob[i]) * 0x9E3779B97F4A7C15ull;
     }
-    // de-XOR metadata fields
+    // de XOR metadata fields
     g_st.t->origSz ^= (DWORD)(stubKey & 0xFFFFFFFF);
     g_st.t->packSz ^= (DWORD)((stubKey >> 32) & 0xFFFFFFFF);
     g_st.t->flags  ^= (BYTE)((stubKey >> 16) & 0xFF);
-    // de-XOR dispKey, canary, vmCodeSz
+    // de XOR dispKey, canary, vmCodeSz
     uint64_t realDispKey = g_st.t->dispKey ^ stubKey;
     g_st.t->vmCodeSz ^= (DWORD)((stubKey >> 8) & 0xFFFFFFFF);
     g_st.t->canaryCnt ^= (BYTE)(stubKey & 0xFF);
@@ -1263,7 +1430,7 @@ static int s_prs() {
     for (int si = 0; si < (int)sizeof(g_st.t->canaryExp); si++) {
         g_st.t->canaryExp[si] ^= (BYTE)(stubKey >> ((si*11)&63));
     }
-    // de-XOR sig with stubKey
+    // de XOR sig with stubKey
     char sigBuf[8]; memcpy(sigBuf, g_st.t->sig, 8);
     for (int si = 0; si < 8; si++) {
         sigBuf[si] ^= (BYTE)(stubKey >> (si*8));
@@ -1286,13 +1453,33 @@ static int s_prs() {
         for (int si = 0; si < nChunks; si++) {
             g_st.t->chunkOrder[si] ^= (BYTE)(stubKey >> ((si*13)&63));
         }
+        // dual thread 
+        {
+            BYTE* overlayStart = g_st.blob.data() + g_st.off + TAIL_SERIALIZED_SZ;
+            SIZE_T overlayLen = (SIZE_T)(g_st.blob.size() - 4 - (g_st.off + TAIL_SERIALIZED_SZ));
+            PxTR_Context pxCtx;
+            pxCtx.target = overlayStart;
+            pxCtx.length = overlayLen;
+            pxCtx.fenceEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+            if (pxCtx.fenceEvent) {
+                HANDLE hA = CreateThread(NULL, 0, PxTR_ThreadA, &pxCtx, 0, NULL);
+                HANDLE hB = CreateThread(NULL, 0, PxTR_ThreadB, &pxCtx, 0, NULL);
+                if (hA && hB) {
+                    WaitForSingleObject(hA, INFINITE);
+                    WaitForSingleObject(hB, INFINITE);
+                }
+                if (hA) CloseHandle(hA);
+                if (hB) CloseHandle(hB);
+                CloseHandle(pxCtx.fenceEvent);
+            }
+        }
         // read chunks from file
         Bytes chunks[4];
         for (int ci = 0; ci < nChunks; ci++) {
             DWORD off = g_st.t->chunkOff[ci];
             DWORD sz  = g_st.t->chunkSz[ci];
             if (!sz) continue;
-            if (off < g_st.off + sizeof(Tail) || off + sz > g_st.blob.size() - 4) return -2;
+            if (off < g_st.off + TAIL_SERIALIZED_SZ || off + sz > g_st.blob.size() - 4) return -2;
             chunks[ci].assign(g_st.blob.begin() + off, g_st.blob.begin() + off + sz);
         }
         // reassemble in logical order
@@ -1306,13 +1493,13 @@ static int s_prs() {
             interleaved.insert(interleaved.end(), chunks[phys].begin(), chunks[phys].end());
         }
     } else {
-        // old format: interleaved overlay starts after Tail
+        // old format
         size_t overlayEnd = g_st.blob.size() - 4;
-        for (size_t i = g_st.off + sizeof(Tail); i < overlayEnd; i++) {
+        for (size_t i = g_st.off + TAIL_SERIALIZED_SZ; i < overlayEnd; i++) {
             interleaved.push_back(g_st.blob[i]);
         }
     }
-    // de-interleave
+    // de interleave
     {
         Bytes deint;
         for (size_t i = 0, fi = 0; i < interleaved.size(); i++, fi++) {
@@ -1324,10 +1511,14 @@ static int s_prs() {
     // verify sizes
     if (interleaved.size() != (size_t)g_st.t->vmCodeSz + (size_t)g_st.t->packSz) return -2;
     // store in g_st.blob so pointers remain valid
-    g_st.blob.resize(g_st.off + sizeof(Tail));
+    // reserialize tail into blob prefix 
+    Bytes serTail = serializeTail(*g_st.t, 0); // seed=0 -> identity order
+    g_st.blob.resize(g_st.off + serTail.size());
+    memcpy(&g_st.blob[g_st.off], serTail.data(), serTail.size());
     g_st.blob.insert(g_st.blob.end(), interleaved.begin(), interleaved.end());
-    g_st.t = (Tail*)&g_st.blob[g_st.off];
-    g_st.vmCodePtr = (BYTE*)(g_st.t + 1);
+    if (!parseTail(g_st.blob, g_st.off, _ts, g_st.off + serTail.size())) return -2;
+    g_st.t = &_ts;
+    g_st.vmCodePtr = g_st.blob.data() + g_st.off + serTail.size();
     // decrypt VM bytecode
     for (size_t vi = 0; vi < g_st.t->vmCodeSz; vi++) {
         g_st.vmCodePtr[vi] ^= (BYTE)(stubKey >> ((vi*3)&63));
@@ -1416,13 +1607,35 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
     Bytes orig = loadFile(in);
     if (orig.size() < 2 || orig[0] != 'M' || orig[1] != 'Z') { printf("error: '%s' is not a valid PE file\n", in.c_str()); return false; }
     printf("input: %zu bytes\n", orig.size());
+    // validate PE header bounds
+    {
+        DWORD peOff = *(DWORD*)(orig.data() + 0x3C);
+        if (peOff + sizeof(IMAGE_NT_HEADERS64) > orig.size()) {
+            printf("error: corrupted PE header\n");
+            return false;
+        }
+        auto* nth = (IMAGE_NT_HEADERS64*)(orig.data() + peOff);
+        if (nth->Signature != IMAGE_NT_SIGNATURE) {
+            printf("error: invalid PE signature\n");
+            return false;
+        }
+        if (nth->FileHeader.NumberOfSections == 0 || nth->FileHeader.NumberOfSections > 96) {
+            printf("error: bad section count\n");
+            return false;
+        }
+    }
     // arch check
     if (orig.size() > 0x3C + 4) {
         DWORD peOff = *(DWORD*)(orig.data() + 0x3C);
         if (peOff + 6 <= orig.size()) {
             WORD machine = *(WORD*)(orig.data() + peOff + 4);
             if (machine == 0x014C) {
-                printf("warning: 32-bit PE, packing may fail\n");
+                printf("error: 32-bit PE not supported\n");
+                return false;
+            }
+            if (machine != 0x8664) {
+                printf("error: unsupported machine type 0x%04X\n", machine);
+                return false;
             }
         }
     }
@@ -1582,7 +1795,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
     }
     DWORD tailOff = 0;
 
-    // build overlay: Tail first (non-interleaved), then payload split into 4 chunks with junk gaps
+    // build overlay 
     {
         Bytes payload;
         if (!vmCode.empty()) {
@@ -1612,7 +1825,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
         // write Tail placeholder
         tailOff = (DWORD)result.size();
         size_t tailPos = result.size();
-        result.resize(result.size() + sizeof(t));
+        result.resize(result.size() + TAIL_SERIALIZED_SZ);
 
         for (int ci = 0; ci < 4; ci++) {
             size_t gapSz = 128 + (crng() % 513);
@@ -1631,6 +1844,42 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
 
         for (int ci = 0; ci < 4; ci++) { t.chunkOff[ci] = rawOff[ci]; t.chunkSz[ci] = rawSz[ci]; t.chunkOrder[ci] = rawOrder[ci]; }
 
+        // generate split 128 bit key and XXTEA encrypt overlay chunks
+        {
+            std::mt19937_64 pxRng(GetTickCount64() ^ (uint64_t)(uintptr_t)&result ^ stubKey);
+            DWORD pxKey[4] = {
+                (DWORD)pxRng(), (DWORD)pxRng(),
+                (DWORD)pxRng(), (DWORD)pxRng()
+            };
+            size_t overlayStart = tailPos + TAIL_SERIALIZED_SZ;
+            size_t overlayLen   = result.size() - overlayStart;
+            size_t nWords = overlayLen / 4;
+            if (nWords >= 2) {
+                xxteaEncrypt((DWORD*)&result[overlayStart], (int)nWords, pxKey);
+            }
+            // XOR remainder (0-3 bytes)
+            DWORD tailKey = pxKey[0] ^ pxKey[1] ^ pxKey[2] ^ pxKey[3];
+            for (size_t i = nWords * 4; i < overlayLen; i++) {
+                result[overlayStart + i] ^= (BYTE)(tailKey >> ((i & 3) * 8));
+            }
+
+            // Patch 4 encoded key words into stub guard block
+            DWORD enc[4] = {
+                pxKey[0] ^ 0xFEEDF00D,
+                pxKey[1] ^ 0xCAFEBABE,
+                pxKey[2] ^ 0xDEADBEEF,
+                pxKey[3] ^ 0x8BADF00D
+            };
+            DWORD guard1 = 0xC0DE1337, guard2 = 0xB007DEAD;
+            for (size_t i = 0; i + 24 <= tailPos; i++) {
+                if (*(DWORD*)&result[i] == guard1 && *(DWORD*)&result[i + 20] == guard2) {
+                    for (int j = 0; j < 4; j++)
+                        *(DWORD*)&result[i + 4 + j * 4] = enc[j];
+                    break;
+                }
+            }
+        }
+
         // encrypt chunk fields
         for (int si = 0; si < 4; si++) {
             t.chunkOff[si] ^= (DWORD)(stubKey >> ((si*11)&63));
@@ -1643,7 +1892,8 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
         }
         t.chunkCnt ^= (BYTE)((stubKey >> 24) & 0xFF);
 
-        memcpy(&result[tailPos], &t, sizeof(t));
+        Bytes serTail = serializeTail(t, (uint32_t)(stubKey ^ result.size()));
+        memcpy(&result[tailPos], serTail.data(), serTail.size());
     }
     // encrypt tail offset
     DWORD encTailOff = tailOff ^ (DWORD)(stubKey & 0xFFFFFFFF);
@@ -1674,19 +1924,24 @@ int main(int argc, char* argv[]) {
     if (in.empty()) {
         // help strings XOR'ed 
         static const BYTE _eh[] = {
-            0x71,0x7B,0x67,0x67,0x79,0x6C,0x7E,0x7C,0x2F,0x34,0x0B,0x0A,0x01,0x72,0x6F,0x60,
-            0x7D,0x76,0x2F,0x64,0x67,0x57,0x67,0x7E,0x7C,0x18,0x3B,0x0A,0x01,0x01,0x69,0x2B,
-            0x28,0x3E,0x39,0x73,0x6E,0x4B,0x5D,0x5D,0x49,0x57,0x36,0x27,0x26,0x38,0x78,0x76,
-            0x7B,0x6D,0x20,0x34,0x73,0x6E,0x70,0x34,0x67,0x2F,0x77,0x74,0x49,0x5C,0x43,0x4F,
-            0x3A,0x37,0x2D,0x2F,0x21,0x6B,0x77,0x71,0x3B,0x6E,0x4B,0x55,0x5A,0x4B,0x47,0x3A,
-            0x28,0x21,0x37,0x2B,0x7B,0x7F,0x67,0x3C,0x73,0x49,0x57,0x54,0x41,0x41,0x42,0x2D,
-            0x39,0x3E,0x3B,0x73,0x79,0x3A,0x58,0x48,0x4F,0x5B,0x44,0x41,0x01,0x6E,0x0B,0x1D,
-            0x0B,0x41,0x54,0x46,0x50,0x45,0x42,0x56,0x3B,0x6E,0x2F,0x67,0x61,0x54,0x4C,0x29,
-            0x24,0x3E,0x6F,0x6B,0x75,0x3C,0x74,0x4F,0x45,0x5B,0x43,0x37,0x3E,0x78,0x7A,0x04,
-            0x72,0x72,0x7B,0x67,0x7E,0x4F,0x5B,0x55,0x01,0x3C,0x63,0x79,0x78,0x6F,0x6B,0x30,
-            0x5A,0x50,0x59,0x0D,0x01,0x73,0x76,0x6B,0x69,0x3E,0x6F,0x69,0x6C,0x61,0x67,0x2C,
-            0x5D,0x41,0x43,0x4B,0x09,0x32,0x7B,0x68,0x6C,0x1B,0x3E,0x2F,0x23,0x2B,0x3F,0x2F,
-            0x73,0x20,0x52,0x4B,0x54,0x4B,0x30,0x23,0x27,0x38,0x8A,0x96,0x94,0x9B,0x97,0x97,0x99
+            0x09,0x37,0x31,0x19,0x2D,0x0D,0x02,0x00,0x45,0x10,0x50,0x46,0x59,0x4A,0x46,0x4C,
+            0x3D,0x2B,0x4F,0x00,0x10,0x11,0x18,0x11,0x07,0x59,0x14,0x0A,0x00,0x0A,0x0F,0x19,
+            0x0F,0x73,0x75,0xF5,0xF2,0xE3,0xE4,0xE1,0xBF,0xA6,0xD3,0xE1,0xE7,0xF3,0xC7,0xE3,
+            0xEC,0xEA,0xA1,0xF5,0xE9,0xF7,0xB3,0xB9,0xB8,0xFF,0xB7,0xA4,0xFF,0xF3,0xF7,0xF9,
+            0xA3,0xBE,0xC4,0xCF,0xD1,0xD6,0xCA,0xCB,0xCB,0xD5,0xFA,0xA5,0xA3,0x8A,0x8B,0x81,
+            0x80,0xC7,0x8F,0x8C,0xD7,0xDB,0xDF,0xD1,0x8B,0x96,0x97,0x98,0x99,0xD3,0xD5,0xCC,
+            0xC8,0xCA,0x9F,0xA5,0xB9,0xA7,0xE3,0xB0,0xAA,0xE6,0xB7,0xA9,0xAA,0xA1,0xC6,0xC6,
+            0xED,0xEE,0xE2,0xFD,0xBE,0xF2,0xEF,0xB2,0xBC,0xBA,0xB2,0xE6,0xF9,0xFA,0xFB,0xFC,
+            0xB2,0xAB,0xAB,0x90,0x94,0x96,0xC3,0x94,0x84,0x92,0x8F,0xC8,0xC1,0x8E,0x8E,0x8A,
+            0x8C,0x9B,0x83,0x84,0xCB,0xD2,0x9A,0x9A,0x85,0x83,0x83,0xA7,0x89,0x9B,0x98,0x97,
+            0x98,0x9A,0xD1,0x65,0x79,0x67,0x2A,0x09,0x0F,0x26,0x27,0x25,0x24,0x7C,0x66,0x2C,
+            0x2D,0x2E,0x2F,0x30,0x31,0x32,0x33,0x34,0x35,0x40,0x5A,0x38,0x7C,0x74,0x78,0x6E,
+            0x64,0x6E,0x6B,0x49,0x4E,0x4C,0x2E,0x2E,0x05,0x06,0x0A,0x05,0x4A,0x0A,0x0B,0x0C,
+            0x0D,0x0E,0x0F,0x10,0x11,0x12,0x13,0x14,0x79,0x6C,0x00,0x0F,0x19,0x59,0x54,0x51,
+            0x4D,0x4C,0x5A,0x33,0x32,0x2B,0x2C,0x2A,0x48,0x4C,0x67,0x68,0x64,0x67,0x3D,0x29,
+            0x25,0x6E,0x6F,0x70,0x71,0x72,0x73,0x74,0x75,0x76,0x01,0x1D,0x11,0x7A,0x2B,0x3D,
+            0x3A,0x3B,0x72,0x06,0x00,0x17,0x0F,0x10,0x45,0x02,0x02,0x0B,0x1B,0x13,0x1B,0x18,
+            0x04,0x01,0x01,0x7D,0x7B
         };
         char buf[512]; uint8_t k = 0x5D;
         for (int i = 0; i < (int)sizeof(_eh); i++) {
@@ -1701,7 +1956,10 @@ int main(int argc, char* argv[]) {
         out = d != std::string::npos ? in.substr(0, d) + "_packed" + in.substr(d) : in + "_packed.exe";
     }
     if (!vm && !comp && !veh) {
-        static const BYTE _en[] = {0x7D,0x78,0x70,0x7F,0x2C,0x38,0x34,0x27,0x28,0x3C,0x2C,0x2F,0x72,0x7E,0x75,0x6F,0x2E,0x2A,0x29,0x7E,0x7A,0x7A,0x77,0x74,0x7B,0x7C,0x6D,0x6B,0x01};
+        static const BYTE _en[] = {
+            0x48,0x21,0x33,0x2C,0x2A,0x2A,0x22,0x7C,0x67,0x26,0x26,0x6A,0x2D,0x20,0x2C,0x29,
+            0x3C,0x70,0x22,0x22,0x36,0x37,0x3C,0x30,0x3E,0x3D,0x3D,0x57,0x51
+        };
         char b2[32]; uint8_t k2 = 0x3F;
         for (int i = 0; i < (int)sizeof(_en); i++) {
             b2[i] = _en[i] ^ (uint8_t)(k2 + i);
