@@ -1,16 +1,15 @@
 <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
-# TinyLoad V7.1
+# TinyLoad v7.1
 ![Version](https://img.shields.io/badge/version-v7.1-e84393?style=flat&logo=cplusplus&logoColor=white&labelColor=0d0d0d)
 ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-2ed573?style=flat&logo=checkmarx&logoColor=white)
 [![Awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/gmh5225/awesome-game-security)
 
-simple PE packer/crypter for Windows. compresses and encrypts executables with a custom virtual machine into a self extracting stub.
+TinyLoad is an pe crypter/packer for x64 executables it packs an input exe with varying protection layers to prevent it from being reverse engineered. Its 1 single .cpp file and does not have any external dependencies.
 
 ## how it works
 
-TinyLoad appends your compressed payload to a copy of itself. when the packed exe runs it uses a custom VM interpreter, executes the decryption bytecode against the payload, then loads and runs it directly in RAM. every time you pack a file the VM opcodes are randomly changed and put into 4 independently keyed tables. Everything is in one c++ file and has no dependencies!
-
+TinyLoad appends your payload to a copy of itself. when the packed exe runs it extracts the payload, decrypts it, and executes it directly in memory without ever writing the original to disk. every time you pack something the VM opcodes are randomly changed and put into 4 independently keyed subtables so no 2 builds are the same.
 
 ## download
 
@@ -18,13 +17,13 @@ grab a precompiled binary from [releases](https://github.com/iamsopotatoe-coder/
 
 ## building from source
 
-you need MinGW (g++) installed. just run:
+you need MinGW (g++). just run:
 
 ```
 g++ -o TinyLoad.exe TinyLoad.cpp -static -O2 -s
 ```
 
-or use the included `build.bat`.
+or use `build.bat`.
 
 ## usage
 
@@ -32,7 +31,7 @@ or use the included `build.bat`.
 TinyLoad.exe --i <input> [--o <output>] [--vm] [--c] [--veh]
 ```
 
-| flag | description |
+| flag | what it does |
 |------|-------------|
 | `--i <file>` | input exe to pack |
 | `--o <file>` | output path (default: `input_packed.exe`) |
@@ -40,11 +39,9 @@ TinyLoad.exe --i <input> [--o <output>] [--vm] [--c] [--veh]
 | `--c` | LZ77 compression |
 | `--veh` | VEH page fault decryption |
 
+you need at least 1 of `--vm`, `--c`, or `--veh`.
+
 ### examples
-
-<img width="800" height="111" alt="demo" src="https://github.com/user-attachments/assets/f6e9f863-27ef-4398-9450-d060af753931" />
-
-
 
 ```
 TinyLoad.exe --i myapp.exe --c
@@ -52,56 +49,41 @@ TinyLoad.exe --i myapp.exe --o packed.exe --vm --c
 TinyLoad.exe --i myapp.exe --vm --c --veh
 ```
 
-you need at least one of `--vm`, `--c`, or `--veh`.
-
 ## compression
 
-custom LZ77 with hash chain matching, 64KB sliding window, and lazy evaluation. typically gets decent ratios on PE files since they have a lot of repeated structure. compression runs on the raw input first, then VM encryption is applied on top so patterns in the compressed stream are also hidden.
+custom LZ77 compression with hash chain matching and a 64KB sliding window. compression runs first, then VM encryption goes on top so any patterns in the compressed data get hidden too.
 
 ## vm encryption
 
-v7 uses a custom 28 opcode virtual machine. the opcode table is split into four 8 entry subtables at pack time, each XOR'd with an independent key derived from different parts of the payload and VM bytecode.
-
-the cipher itself is a 128 bit stream cipher using rotl/rotr key mixing, run entirely through the VM so theres no native decryption loop to fingerprint.
-
-## control flow obfuscation
-
-v7 flattens every major function through indirect dispatch tables. the self extraction entry point is broken into 6 stages called through a function pointer array. the PE loader is split into 5 stages using the same pattern.
-
-string decryption noise is scattered throughout: all encrypted strings are pre decrypted once at startup, then `noiseDecrypt()` fires at random points.
-
-the VM dispatch table itself is never plaintext in the packed binary. pack time reads live label offsets from the running stub process, encrypts them with a random key, and stores them in the appended tail. the packed stub decrypts and recomputes the dispatch at runtime.
-
-## anti dump
-
-v7 redirects critical payload imports (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) through stub resident wrappers. after loading, the import directory is wiped.
-
-## dual thread key recombination
-
-v7.1 upgrades overlay encryption from XOR to XXTEA with a 128 bit key split across two threads. Thread A owns key words 0 and 1, Thread B owns words 2 and 3 — each encoded with independent XOR constants. the full key only exists transiently inside a `WaitForSingleObject` fence during `xxteaDecrypt()`, then all key material is re encoded.
+custom 28 opcode virtual machine that runs inside the stub. the opcodes get randomly placed into 4 subtables of 8 each and every subtable is XOR encrypted with a different key derived from the payload data. cracking 1 subtable reveals at most 8 opcodes out of 28. the cipher itself is a 128 bit stream cipher using rotl and rotr key mixing run entirely inside the VM interpreter.
 
 
 ## veh page fault decryption
 
-`--veh` maps all PE section pages as PAGE_NOACCESS. a vectored exception handler decrypts pages on first access and restores their original section protection (PAGE_EXECUTE_READ for .text, PAGE_READONLY for .rdata, etc.). a watchdog thread re encrypts pages after 200ms of inactivity with a 256-slot LRU cache. memory dumps capture only recently accessed pages.
+with `--veh` enabled, all PE section pages get mapped as PAGE_NOACCESS. when the program tries to access a page it triggers an exception, a vectored exception handler decrypts just that 1 page and sets the correct protection. a watchdog thread runs in the background and re-encrypts any page that hasnt been touched in 200ms. at any given moment most of your program is still encrypted in memory so memory dumps only capture whatever was recently accessed.
+
+
+## anti dump
+
+the 4 most critical APIs (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) get redirected through wrapper functions inside the stub. after the payload is loaded the entire import directory gets zeroed so memory dumps cannot reconstruct the import table.
 
 
 Graph:
 
-<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/2b307f82-845f-442c-ba21-12b7a46efee1" />
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/78f05d78-6194-4762-97e9-f34f65060605" />
 
 ## license
 
 MIT
 
-## Sidenotes
+## sidenotes
 
-- This works on all files i tested it on, if it breaks on some of your files please open an issue to let me know.
-- If you want to suggest any improvements or future updates please open an issue.
-- if you use it, a star helps a lot <3
-- Check out our blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates and changelogs!
-- Tinyload v7.1 adds XXTEA overlay encryption, dual thread key recombination, Tail field randomisation, and anti debug improvements.
-- Please do not use this tool to pack any malicious software or malware, it is intended to be used for legitimate purposes.
-- Star History:
+- this works on most files ive tested, if it breaks on yours open an issue and ill look into it
+- suggestions and feature ideas go in issues too
+- if you use it a star helps alot <3 
+- check the blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates
+- yes AVs flag packers, thats expected. (Currently has 9 detections on virustotal, any file you pack with it gets 9 detections, the content doesnt matter)
+- pls dont pack malware with this, its intended for legitimate use
+- Star history:
 
 [![Star History Chart](https://api.star-history.com/svg?repos=iamsopotatoe-coder/TinyLoad&type=Date)](https://star-history.com/#iamsopotatoe-coder/TinyLoad&Date)
