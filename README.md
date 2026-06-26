@@ -1,7 +1,7 @@
 <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
-# TinyLoad v7.1
-![Version](https://img.shields.io/badge/version-v7.1-e84393?style=flat&logo=cplusplus&logoColor=white&labelColor=0d0d0d)
+# TinyLoad v7.2
+![Version](https://img.shields.io/badge/version-v7.2-e84393?style=flat&logo=cplusplus&logoColor=white&labelColor=0d0d0d)
 ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-2ed573?style=flat&logo=checkmarx&logoColor=white)
 [![Awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/gmh5225/awesome-game-security)
 
@@ -38,6 +38,7 @@ TinyLoad.exe --i <input> [--o <output>] [--vm] [--c] [--veh]
 | `--vm` | VM encryption |
 | `--c` | LZ77 compression |
 | `--veh` | VEH page fault decryption |
+| `--noconsole` | GUI subsystem |
 
 you need at least 1 of `--vm`, `--c`, or `--veh`.
 
@@ -55,7 +56,7 @@ custom LZ77 compression with hash chain matching and a 64KB sliding window. comp
 
 ## vm encryption
 
-custom 28 opcode virtual machine that runs inside the stub. the opcodes get randomly placed into 4 subtables of 8 each and every subtable is XOR encrypted with a different key derived from the payload data. cracking 1 subtable reveals at most 8 opcodes out of 28. the cipher itself is a 128 bit stream cipher using rotl and rotr key mixing run entirely inside the VM interpreter.
+custom 28 opcode virtual machine that runs inside the stub. the opcodes get randomly placed into 4 subtables of 8 each and every subtable is XOR encrypted with a different key derived from the payload data. cracking 1 subtable reveals at most 8 opcodes out of 28. the cipher itself is a 128 bit stream cipher using rotl and rotr key mixing run entirely inside the VM interpreter. The payload is encrypted using XXTEA.
 
 
 ## veh page fault decryption
@@ -70,7 +71,7 @@ the 4 most critical APIs (GetModuleHandleA, GetProcAddress, ExitProcess, Virtual
 
 Graph:
 
-<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/78f05d78-6194-4762-97e9-f34f65060605" />
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/cbdf9b29-12ce-4742-901a-acb18b546832" />
 
 ## license
 
@@ -83,7 +84,7 @@ MIT
 - if you use it a star helps alot <3 
 - check the blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates
 - yes AVs flag packers, thats expected. (Currently has 9 detections on virustotal, any file you pack with it gets 9 detections, the content doesnt matter)
-- pls dont pack malware with this, its intended for legitimate use
+- please dont pack malware with this, its intended for legitimate use
 - Star history:
 
 [![Star History Chart](https://api.star-history.com/svg?repos=iamsopotatoe-coder/TinyLoad&type=Date)](https://star-history.com/#iamsopotatoe-coder/TinyLoad&Date)
