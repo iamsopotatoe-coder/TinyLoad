@@ -5,6 +5,9 @@
 ![Actively Maintained](https://img.shields.io/badge/Actively%20Maintained-2ed573?style=flat&logo=checkmarx&logoColor=white)
 [![Awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/gmh5225/awesome-game-security)
 
+> [!NOTE]
+> Development on a short break until August because of vacation. v7.3 is planned, stay tuned!
+
 TinyLoad is an pe crypter/packer for x64 executables it packs an input exe with varying protection layers to prevent it from being reverse engineered. Its 1 single .cpp file and does not have any external dependencies.
 
 ## how it works
@@ -79,6 +82,7 @@ MIT
 
 ## sidenotes
 
+- There are alot of features that i didnt put into the readme, you can read the code yourself or look at changelog.md
 - this works on most files ive tested, if it breaks on yours open an issue and ill look into it
 - suggestions and feature ideas go in issues too
 - if you use it a star helps alot <3 
