@@ -71,7 +71,7 @@ the 4 most critical APIs (GetModuleHandleA, GetProcAddress, ExitProcess, Virtual
 
 Graph:
 
-<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/cbdf9b29-12ce-4742-901a-acb18b546832" />
+<img width="1977" height="1178" alt="compression_graph" src="https://github.com/user-attachments/assets/a36efb98-10ff-46fc-be02-b14a05cc3f56" />
 
 ## license
 
