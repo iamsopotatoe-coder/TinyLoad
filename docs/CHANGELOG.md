@@ -1,5 +1,10 @@
 # Changelog
 
+## v7.2
+* added --noconsole flag for when you do not want a console
+* Fixed a XXTEA bug which would make it break on previously packed executables with RustPacker.
+* Added direct syscalls for stub apis
+
 ## v7.1
 
 * XXTEA overlay encryption payload encryption upgraded from XOR to XXTEA (Corrected Block TEA).
