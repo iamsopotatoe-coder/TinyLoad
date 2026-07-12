@@ -91,4 +91,11 @@ MIT
 - please dont pack malware with this, its intended for legitimate use
 - Star history:
 
-[![Star History Chart](https://api.star-history.com/svg?repos=iamsopotatoe-coder/TinyLoad&type=Date)](https://star-history.com/#iamsopotatoe-coder/TinyLoad&Date)
+<a href="https://www.star-history.com/?repos=TinyLoad%2FTinyLoad%2Ciamsopotatoe-coder%2FTinyLoad&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=TinyLoad/TinyLoad%2Ciamsopotatoe-coder/TinyLoad&type=date&theme=dark&legend=top-left&smooth=true&sealed_token=jBtLBdQrLiGKmwDFwC0Q6Sr-QfJRalMsbwK_5Z0A5UeOUc3_R3nIM8c-d3EFB3Q_ZWhTrM4EBdKjYnbOADmn_5mQ4etXVxMJYGuMQz8wYvsmGZSAnfoGkKQOviq_2yF6fkNN722R8Tx47JB1_unUVcAxd81dY7IV9wqj57jFLnb4-SDSwfDr0gBksR7P" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=TinyLoad/TinyLoad%2Ciamsopotatoe-coder/TinyLoad&type=date&legend=top-left&smooth=true&sealed_token=jBtLBdQrLiGKmwDFwC0Q6Sr-QfJRalMsbwK_5Z0A5UeOUc3_R3nIM8c-d3EFB3Q_ZWhTrM4EBdKjYnbOADmn_5mQ4etXVxMJYGuMQz8wYvsmGZSAnfoGkKQOviq_2yF6fkNN722R8Tx47JB1_unUVcAxd81dY7IV9wqj57jFLnb4-SDSwfDr0gBksR7P" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=TinyLoad/TinyLoad%2Ciamsopotatoe-coder/TinyLoad&type=date&legend=top-left&smooth=true&sealed_token=jBtLBdQrLiGKmwDFwC0Q6Sr-QfJRalMsbwK_5Z0A5UeOUc3_R3nIM8c-d3EFB3Q_ZWhTrM4EBdKjYnbOADmn_5mQ4etXVxMJYGuMQz8wYvsmGZSAnfoGkKQOviq_2yF6fkNN722R8Tx47JB1_unUVcAxd81dY7IV9wqj57jFLnb4-SDSwfDr0gBksR7P" />
+ </picture>
+</a>
+
