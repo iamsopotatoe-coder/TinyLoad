@@ -1,4 +1,4 @@
-<img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="60%" />
+<img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
 ## *TinyLoad v7.2 - PE packer for windows* 
 <p align=”left">
