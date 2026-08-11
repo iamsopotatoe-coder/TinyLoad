@@ -1,14 +1,12 @@
 <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
-## *TinyLoad v7.2 - PE packer for windows* 
+## *TinyLoad v7.3 - PE packer for windows* 
 <p align=”left">
   <img alt="Version" src="https://img.shields.io/badge/version-v7.2-e84393?style=plastic&logo=cplusplus&logoColor=white&labelColor=0d0d0d">
   <img alt="Actively Maintained" src="https://img.shields.io/badge/Actively%20Maintained-2ed573?style=plastic&logo=checkmarx&logoColor=white">
   <a href="https://github.com/gmh5225/awesome-game-security"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome" height="18"></a>
 </p>
 
-> [!NOTE]
-> Development on a short break until August because of vacation. v7.3 is planned, stay tuned!
 
 TinyLoad is an pe crypter/packer for x64 executables it packs an input exe with varying protection layers to prevent it from being reverse engineered. Its 1 single .cpp file and does not have any external dependencies.
 
@@ -49,11 +47,8 @@ you need at least 1 of `--vm`, `--c`, or `--veh`.
 
 ### examples
 
-```cmd
-TinyLoad.exe --i myapp.exe --c
-TinyLoad.exe --i myapp.exe --o packed.exe --vm --c
-TinyLoad.exe --i myapp.exe --vm --c --veh
-```
+<img width="800" height="103" alt="2026-08-1118-55-14-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/a72391e1-aa90-4921-ad8c-840095cd2c1c" />
+
 ## *DIE images*
 
 <p align="center">
@@ -82,7 +77,7 @@ the 4 most critical APIs (GetModuleHandleA, GetProcAddress, ExitProcess, Virtual
 
 ### Graph:
 
-<img width="2100" height="1200" alt="compression-graph" src="https://github.com/user-attachments/assets/324a4b82-29fb-40cf-9b01-15687aba7cae" />
+<img width="2100" height="1200" alt="631688071-324a4b82-29fb-40cf-9b01-15687aba7cae-mh" src="https://github.com/user-attachments/assets/f6e2818e-82d9-4437-a8d3-fe364cf33bec" />
 
 ## *license*
 
