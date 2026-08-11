@@ -1,9 +1,16 @@
-// Tinyload v7.2, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
+// Tinyload v7.3, MIT license, https://github.com/iamsopotatoe-coder/TinyLoad/
 #include <windows.h>
 #include <vector>
 #include <string>
 #include <fstream>
 #include <cstdio>
+
+// ansi colors
+#define CLR_RED "\033[31m"
+#define CLR_GRN "\033[32m"
+#define CLR_YEL "\033[33m"
+#define CLR_CYN "\033[36m"
+#define CLR_RST "\033[0m"
 #include <cstring>
 #include <cstdint>
 #include <algorithm>
@@ -90,7 +97,7 @@ __attribute__((noinline)) __attribute__((used)) static void noiseDecrypt() {
 
 static BYTE* g_ss = nullptr;
 #define SS_SZ 12
-enum { SS_AllocVM, SS_ProtectVM, SS_WaitObj, SS_CreateTh, SS_Delay, SS_Close, SS_QueryInfo, SS_COUNT };
+enum { SS_AllocVM, SS_ProtectVM, SS_WaitObj, SS_CreateTh, SS_Delay, SS_Close, SS_QueryInfo, SS_SetInfo, SS_COUNT };
 
 static DWORD ssnGet(const char* name) {
     HANDLE f = CreateFileA("C:\\Windows\\System32\\ntdll.dll", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
@@ -125,7 +132,7 @@ __attribute__((noinline)) static void sysInit() {
     g_ss = (BYTE*)VirtualAlloc(NULL, SS_COUNT * SS_SZ, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!g_ss) return;
     const char* tbl[SS_COUNT] = {"NtAllocateVirtualMemory","NtProtectVirtualMemory","NtWaitForSingleObject",
-        "NtCreateThreadEx","NtDelayExecution","NtClose","NtQueryInformationProcess"};
+        "NtCreateThreadEx","NtDelayExecution","NtClose","NtQueryInformationProcess","NtSetInformationThread"};
     for (int i = 0; i < SS_COUNT; i++) {
         BYTE* s = g_ss + i * SS_SZ;
         s[0]=0x4C; s[1]=0x8B; s[2]=0xD1; s[3]=0xB8;
@@ -144,6 +151,7 @@ typedef NTSTATUS(NTAPI* pNtCreate)(PHANDLE,ACCESS_MASK,PVOID,HANDLE,PVOID,PVOID,
 typedef NTSTATUS(NTAPI* pNtDelay)(BOOLEAN,PLARGE_INTEGER);
 typedef NTSTATUS(NTAPI* pNtClose)(HANDLE);
 typedef NTSTATUS(NTAPI* pNtQuery)(HANDLE,DWORD,PVOID,ULONG,PULONG);
+typedef NTSTATUS(NTAPI* pNtSetInfo)(HANDLE,DWORD,PVOID,ULONG);
 
 static pNtAlloc  _NtAllocVM;
 static pNtProt   _NtProtectVM;
@@ -152,6 +160,7 @@ static pNtCreate _NtCreateTh;
 static pNtDelay  _NtDelayExec;
 static pNtClose  _NtClose;
 static pNtQuery  _NtQueryInfo;
+static pNtSetInfo _NtSetInfoTh;
 
 static void sysBind() {
     _NtAllocVM   = (pNtAlloc)&g_ss[SS_AllocVM*SS_SZ];
@@ -161,6 +170,7 @@ static void sysBind() {
     _NtDelayExec = (pNtDelay)&g_ss[SS_Delay*SS_SZ];
     _NtClose     = (pNtClose)&g_ss[SS_Close*SS_SZ];
     _NtQueryInfo = (pNtQuery)&g_ss[SS_QueryInfo*SS_SZ];
+    _NtSetInfoTh = (pNtSetInfo)&g_ss[SS_SetInfo*SS_SZ];
 }
 
 #define NtAllocVM  (*_NtAllocVM)
@@ -170,6 +180,7 @@ static void sysBind() {
 #define NtDelay    (*_NtDelayExec)
 #define NtClose    (*_NtClose)
 #define NtQuery    (*_NtQueryInfo)
+#define NtSetInfo  (*_NtSetInfoTh)
 
 //dual thread key recombination
 struct PxTR_Context {
@@ -280,6 +291,44 @@ enum {
     NUM_OPS
 };
 
+// SHA-256
+struct SHA256 { uint32_t s[8]; uint64_t n; uint8_t b[64]; };
+static const uint32_t _K[64] = {
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a90c,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+};
+static void _shax(SHA256* ctx, const uint8_t* data) {
+    uint32_t a,b,c,d,e,f,g,h,i,j,t1,t2,m[64];
+    for(i=0,j=0;i<16;i++,j+=4)
+        m[i]=((uint32_t)data[j]<<24)|((uint32_t)data[j+1]<<16)|((uint32_t)data[j+2]<<8)|data[j+3];
+    for(;i<64;i++) m[i]=(m[i-2]>>17|m[i-2]<<15)^(m[i-2]>>19|m[i-2]<<13)^(m[i-2]>>10)+m[i-7]+(m[i-15]>>7|m[i-15]<<25)^(m[i-15]>>18|m[i-15]<<14)^(m[i-15]>>3)+m[i-16];
+    a=ctx->s[0];b=ctx->s[1];c=ctx->s[2];d=ctx->s[3];
+    e=ctx->s[4];f=ctx->s[5];g=ctx->s[6];h=ctx->s[7];
+    for(i=0;i<64;i++){
+        t1=h+(e>>6|e<<26)^(e>>11|e<<21)^(e>>25|e<<7)+((e&f)^(~e&g))+_K[i]+m[i];
+        t2=(a>>2|a<<30)^(a>>13|a<<19)^(a>>22|a<<10)+((a&b)^(a&c)^(b&c));
+        h=g;g=f;f=e;e=d+t1;d=c;c=b;b=a;a=t1+t2;
+    }
+    ctx->s[0]+=a;ctx->s[1]+=b;ctx->s[2]+=c;ctx->s[3]+=d;
+    ctx->s[4]+=e;ctx->s[5]+=f;ctx->s[6]+=g;ctx->s[7]+=h;
+}
+static void sha256i(SHA256* ctx) {ctx->s[0]=0x6a09e667;ctx->s[1]=0xbb67ae85;ctx->s[2]=0x3c6ef372;ctx->s[3]=0xa54ff53a;ctx->s[4]=0x510e527f;ctx->s[5]=0x9b05688c;ctx->s[6]=0x1f83d9ab;ctx->s[7]=0x5be0cd19;ctx->n=0;}
+static void sha256u(SHA256* ctx, const uint8_t* d, size_t len) {
+    for(size_t i=0;i<len;i++){ctx->b[ctx->n&63]=d[i];if((++ctx->n&63)==0)_shax(ctx,ctx->b);}
+}
+static void sha256f(SHA256* ctx, uint8_t* out) {
+    uint64_t bits=ctx->n*8; uint8_t p=0x80; sha256u(ctx,&p,1);
+    while((ctx->n&63)!=56){uint8_t z=0;sha256u(ctx,&z,1);}
+    for(int i=7;i>=0;i--){uint8_t b=(uint8_t)(bits>>(i*8));sha256u(ctx,&b,1);}
+    for(int i=0;i<8;i++){out[i*4]=(uint8_t)(ctx->s[i]>>24);out[i*4+1]=(uint8_t)(ctx->s[i]>>16);out[i*4+2]=(uint8_t)(ctx->s[i]>>8);out[i*4+3]=(uint8_t)ctx->s[i];}
+}
+
 #pragma pack(push, 1)
 struct Tail {
     char sig[8];
@@ -294,6 +343,8 @@ struct Tail {
     uint32_t canaryOff[8];
     BYTE     canaryExp[8];
     BYTE     canaryCnt;
+    // payload integrity
+    uint8_t  payHash[8];
     // chunk splitting
     uint32_t chunkOff[4];
     uint32_t chunkSz[4];
@@ -307,7 +358,7 @@ struct Tail {
 // Tail field table for shuffled serialization
 enum { TF_SIG, TF_ORIGSZ, TF_PACKSZ, TF_FLAGS, TF_DISPOFF, TF_SUBTABLES,
        TF_VMCODESZ, TF_DISPKEY, TF_CANARYOFF, TF_CANARYEXP, TF_CANARYCNT,
-       TF_CHUNKOFF, TF_CHUNKSZ, TF_CHUNKORDER, TF_CHUNKCNT, TF_COUNT };
+       TF_PAYHASH, TF_CHUNKOFF, TF_CHUNKSZ, TF_CHUNKORDER, TF_CHUNKCNT, TF_COUNT };
 struct TailField { uint8_t id; uint16_t off; uint16_t sz; };
 static const TailField g_tailFields[TF_COUNT] = {
     {TF_SIG,        offsetof(Tail,sig),        sizeof(((Tail*)0)->sig)},
@@ -321,6 +372,7 @@ static const TailField g_tailFields[TF_COUNT] = {
     {TF_CANARYOFF,  offsetof(Tail,canaryOff),  sizeof(((Tail*)0)->canaryOff)},
     {TF_CANARYEXP,  offsetof(Tail,canaryExp),  sizeof(((Tail*)0)->canaryExp)},
     {TF_CANARYCNT,  offsetof(Tail,canaryCnt),  sizeof(((Tail*)0)->canaryCnt)},
+    {TF_PAYHASH,    offsetof(Tail,payHash),    sizeof(((Tail*)0)->payHash)},
     {TF_CHUNKOFF,   offsetof(Tail,chunkOff),   sizeof(((Tail*)0)->chunkOff)},
     {TF_CHUNKSZ,    offsetof(Tail,chunkSz),    sizeof(((Tail*)0)->chunkSz)},
     {TF_CHUNKORDER, offsetof(Tail,chunkOrder), sizeof(((Tail*)0)->chunkOrder)},
@@ -1267,7 +1319,9 @@ static int sp_import() {
 static int sp_go() {
     using EntryPoint = void(WINAPI*)();
     EntryPoint entry = (EntryPoint)((BYTE*)g_pe.base + g_pe.nt->OptionalHeader.AddressOfEntryPoint);
-    entry();
+    // evade emulator OEP pattern matching
+    volatile EntryPoint ep = entry;
+    __asm__ __volatile__("callq *(%0)" : : "r"(&ep) : "memory");
     return -1;
 }
 
@@ -1478,6 +1532,7 @@ static struct {
 static int s_chk() {
     initStrings();
     if (!g_ss) { sysInit(); sysBind(); }
+    NtSetInfo((HANDLE)-2, 0x11, NULL, 0);
     if (isDebugged()) return -2;
     noiseDecrypt();
     { ULONG dbg = 0; NtQuery((HANDLE)-1, 0x1F, &dbg, sizeof(dbg), NULL); if (!dbg) return -2; }
@@ -1520,6 +1575,7 @@ static int s_prs() {
     for (int si = 0; si < (int)sizeof(g_st.t->canaryExp); si++) {
         g_st.t->canaryExp[si] ^= (BYTE)(stubKey >> ((si*11)&63));
     }
+    for (int si = 0; si < 8; si++) g_st.t->payHash[si] ^= (BYTE)(stubKey >> ((si*13)&63));
     // de XOR sig with stubKey
     char sigBuf[8]; memcpy(sigBuf, g_st.t->sig, 8);
     for (int si = 0; si < 8; si++) {
@@ -1636,6 +1692,9 @@ static int s_dc() {
 }
 static int s_ex() {
     noiseDecrypt();
+    // verify payload hash
+    { SHA256 h; sha256i(&h); sha256u(&h, g_st.pay.data(), g_st.pay.size()); uint8_t fh[32]; sha256f(&h, fh);
+      if (memcmp(fh, g_st.t->payHash, 8)) return -2; }
     return runInMem(g_st.pay, !!(g_st.t->flags & FLAG_VEH)) ? -1 : -2;
 }
 
@@ -1696,22 +1755,22 @@ void scrambleSections(Bytes& data) {
 
 bool pack(const std::string& in, const std::string& out, bool vm, bool comp, bool veh, bool noconsole) {
     Bytes orig = loadFile(in);
-    if (orig.size() < 2 || orig[0] != 'M' || orig[1] != 'Z') { printf("error: '%s' is not a valid PE file\n", in.c_str()); return false; }
-    printf("input: %zu bytes\n", orig.size());
+    if (orig.size() < 2 || orig[0] != 'M' || orig[1] != 'Z') { printf(CLR_RED "error:" CLR_RST " '%s' is not a valid PE file\n", in.c_str()); return false; }
+    printf(CLR_CYN "input:" CLR_RST " " CLR_GRN "%zu" CLR_RST " bytes\n", orig.size());
     // validate PE header bounds
     {
         DWORD peOff = *(DWORD*)(orig.data() + 0x3C);
         if (peOff + sizeof(IMAGE_NT_HEADERS64) > orig.size()) {
-            printf("error: corrupted PE header\n");
+            printf(CLR_RED "error:" CLR_RST " corrupted PE header\n");
             return false;
         }
         auto* nth = (IMAGE_NT_HEADERS64*)(orig.data() + peOff);
         if (nth->Signature != IMAGE_NT_SIGNATURE) {
-            printf("error: invalid PE signature\n");
+            printf(CLR_RED "error:" CLR_RST " invalid PE signature\n");
             return false;
         }
         if (nth->FileHeader.NumberOfSections == 0 || nth->FileHeader.NumberOfSections > 96) {
-            printf("error: bad section count\n");
+            printf(CLR_RED "error:" CLR_RST " bad section count\n");
             return false;
         }
     }
@@ -1721,11 +1780,11 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
         if (peOff + 6 <= orig.size()) {
             WORD machine = *(WORD*)(orig.data() + peOff + 4);
             if (machine == 0x014C) {
-                printf("error: 32-bit PE not supported\n");
+                printf(CLR_RED "error:" CLR_RST " 32-bit PE not supported\n");
                 return false;
             }
             if (machine != 0x8664) {
-                printf("error: unsupported machine type 0x%04X\n", machine);
+                printf(CLR_RED "error:" CLR_RST " unsupported machine type 0x%04X\n", machine);
                 return false;
             }
         }
@@ -1737,7 +1796,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
     if (comp) {
         flags |= 1;
         Bytes packed = lzPack(pay);
-        printf("compressed: %zu -> %zu bytes (%d%%)\n", pay.size(), packed.size(), (int)(100.0 * packed.size() / orig.size()));
+        printf(CLR_CYN "compressed:" CLR_RST " " CLR_GRN "%zu" CLR_RST " -> " CLR_GRN "%zu" CLR_RST " bytes (" CLR_GRN "%d%%" CLR_RST ")\n", pay.size(), packed.size(), (int)(100.0 * packed.size() / orig.size()));
         pay = packed;
     }
 
@@ -1814,7 +1873,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
 
         vmCode = makeVmProgram(opmap_enc, key1, key2, canOff, canExp, canCnt);
         vmEncryptPayload(pay, key1, key2);
-        printf("vm encrypted: %zu bytes of bytecode\n", vmCode.size());
+        printf(CLR_CYN "vm encrypted:" CLR_RST " " CLR_GRN "%zu" CLR_RST " bytes of bytecode\n", vmCode.size());
     }
 
     if (veh) {
@@ -1824,7 +1883,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
     char self[MAX_PATH];
     GetModuleFileNameA(NULL, self, MAX_PATH);
     Bytes stub = loadFile(self);
-    if (stub.empty()) { printf("error: cannot read stub from self\n"); return false; }
+    if (stub.empty()) { printf(CLR_RED "error:" CLR_RST " cannot read stub from self\n"); return false; }
 
     // derive key from stub for overlay encryption (skip headers: use .text)
     uint64_t stubKey = 0x9E3779B97F4A7C15ull;
@@ -1862,6 +1921,8 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
     t.canaryCnt = canCnt;
     memcpy(t.canaryOff, canOff, sizeof(canOff));
     memcpy(t.canaryExp, canExp, sizeof(canExp));
+    // payload hash (truncated SHA-256 of original)
+    { SHA256 h; sha256i(&h); sha256u(&h, orig.data(), orig.size()); uint8_t fh[32]; sha256f(&h, fh); memcpy(t.payHash, fh, 8); }
     // hide signature with stubKey
     for (int si = 0; si < 8; si++) t.sig[si] ^= (BYTE)(stubKey >> (si*8));
     // scramble subtables
@@ -1880,6 +1941,7 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
         t.canaryExp[si] ^= (BYTE)(stubKey >> ((si*11)&63));
     t.canaryCnt ^= (BYTE)(stubKey & 0xFF);
     t.vmCodeSz ^= (DWORD)((stubKey >> 8) & 0xFFFFFFFF);
+    for (int si = 0; si < 8; si++) t.payHash[si] ^= (BYTE)(stubKey >> ((si*13)&63));
     // encrypt VM bytecode
     for (size_t vi = 0; vi < vmCode.size(); vi++) {
         vmCode[vi] ^= (BYTE)(stubKey >> ((vi*3)&63));
@@ -2001,11 +2063,13 @@ bool pack(const std::string& in, const std::string& out, bool vm, bool comp, boo
     scrambleSections(result);
 
     if (!saveFile(out, result)) return false;
-    printf("-> %s (%zu bytes)\n", out.c_str(), result.size());
+    printf(CLR_GRN "->" CLR_RST " %s (" CLR_GRN "%zu" CLR_RST " bytes)\n", out.c_str(), result.size());
     return true;
 }
 
 int main(int argc, char* argv[]) {
+    DWORD mode = 0; GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &mode);
+    SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), mode | 0x0004);
     if (tryRun()) return 0;
     std::string in, out;
     bool vm = false, comp = false, veh = false, noconsole = false;
@@ -2047,7 +2111,7 @@ int main(int argc, char* argv[]) {
             buf[i] = _eh[i] ^ (uint8_t)(k + i);
         }
         buf[sizeof(_eh)] = 0;
-        puts(buf);
+        printf(CLR_CYN "%s" CLR_RST "\n", buf);
         return 1;
     }
     if (out.empty()) {
@@ -2064,7 +2128,7 @@ int main(int argc, char* argv[]) {
             b2[i] = _en[i] ^ (uint8_t)(k2 + i);
         }
         b2[sizeof(_en)] = 0;
-        puts(b2);
+        printf(CLR_YEL "%s" CLR_RST "\n", b2);
         return 1;
     }
     return pack(in, out, vm, comp, veh, noconsole) ? 0 : 1;
