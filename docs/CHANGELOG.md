@@ -1,4 +1,11 @@
+
 # Changelog
+
+## v7.3
+* bypassed "XEmulUnpacker" https://github.com/horsicq/XEmulUnpacker OEP unpacking by changing call rax in sp_go() to callq*(%reg) (memory indirect FF 10)
+* new anti debugging syscall in the SSN table
+* SHA 256 integrity hash of the payload stored in Tail overlay.
+* I added terminal colors so the output of the builder/packer is colorful! (mostly for fun and so you can read better)
 
 ## v7.2
 * added --noconsole flag for when you do not want a console
@@ -83,4 +90,3 @@
 ## v1.0
 
 * initial release
-
