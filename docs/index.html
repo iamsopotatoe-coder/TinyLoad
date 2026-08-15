@@ -14,7 +14,7 @@
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="TinyLoad">
     <meta property="og:title" content="TinyLoad v7.3 — PE Packer &amp; Crypter for Windows">
-    <meta property="og:description" content="Open-source PE packer for x64 executables. Custom VM encryption, LZ77 compression, VEH page-fault decryption, anti-dump. One .cpp file, no dependencies.">
+    <meta property="og:description" content="Open source PE packer for x64 executables.">
     <meta property="og:url" content="https://iamsopotatoe-coder.github.io/TinyLoad/">
     <meta property="og:image" content="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1">
 
@@ -30,7 +30,7 @@
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Windows",
         "softwareVersion": "7.3",
-        "description": "Open-source PE packer and crypter for Windows x64 executables. Custom 28-opcode VM encryption, LZ77 compression, VEH page-fault decryption and anti-dump protection in a single C++ file with no external dependencies.",
+        "description": "Open source PE packer and crypter for Windows x64 executables.",
         "url": "https://iamsopotatoe-coder.github.io/TinyLoad/",
         "codeRepository": "https://github.com/iamsopotatoe-coder/TinyLoad",
         "downloadUrl": "https://github.com/iamsopotatoe-coder/TinyLoad/releases",
@@ -73,16 +73,7 @@
         a { color: #0000c8; }
         a:hover { color: #b00000; }
         img { max-width: 100%; height: auto; }
-        .dieimg { display: flex; gap: 12px; justify-content: center; align-items: flex-start; }
-        .image-loading { position: relative; display: flex; width: calc(48% - 6px); min-height: 180px; align-items: center; justify-content: center; overflow: hidden; background: transparent; border: 0; }
-        .image-loading::before { content: ""; width: 28px; height: 28px; border: 3px solid #b6b6b6; border-top-color: #000080; border-radius: 50%; animation: image-spin .75s linear infinite; }
-        .image-loading.loaded::before, .image-loading.failed::before { display: none; }
-        .image-loading img { display: block; max-width: 100%; opacity: 0; }
-        .image-loading.loaded img { opacity: 1; }
-        .image-loading.failed::after { content: "Image could not load"; font-size: 13px; color: #555; }
-        @keyframes image-spin { to { transform: rotate(360deg); } }
         .footer { text-align: center; font-size: 13px; color: #4a4a4a; border-top: 1px solid #c5c5c5; padding-top: 14px; }
-        @media (max-width: 700px) { .dieimg { display: block; } .image-loading { width: 100%; margin-bottom: 12px; } }
     </style>
 </head>
 <body>
@@ -199,18 +190,6 @@ TinyLoad.exe --i app.exe --vm --c --veh</pre>
         </section>
 
         <section class="group">
-            <h2 class="gtitle">DIE images</h2>
-            <div class="dieimg">
-                <div class="image-loading">
-                    <img src="https://github.com/user-attachments/assets/b78e57fd-24c0-472d-8ceb-9b67636f3e6e" alt="TinyLoad packed executable analyzed in Detect It Easy" loading="lazy">
-                </div>
-                <div class="image-loading">
-                    <img src="https://github.com/user-attachments/assets/aaaf44fb-37f0-459d-a72a-608a40132d0c" alt="Entropy view of a TinyLoad packed executable in Detect It Easy" loading="lazy">
-                </div>
-            </div>
-        </section>
-
-        <section class="group">
             <h2 class="gtitle">license</h2>
             <p>MIT</p>
         </section>
@@ -242,11 +221,3 @@ TinyLoad.exe --i app.exe --vm --c --veh</pre>
     </footer>
 
 </div>
-<script>
-    document.querySelectorAll('.image-loading img').forEach(function (image) {
-        function finish(state) { image.parentElement.classList.add(state); }
-        image.addEventListener('load', function () { finish('loaded'); });
-        image.addEventListener('error', function () { finish('failed'); });
-        if (image.complete) finish(image.naturalWidth ? 'loaded' : 'failed');
-    });
-
