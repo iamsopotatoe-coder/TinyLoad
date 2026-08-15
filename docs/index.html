@@ -1,364 +1,252 @@
 <!doctype html>
 <html lang="en">
-    <head>
-<meta name="google-site-verification" content="yXHaSuNNB2DGd8MNhQ6SbFZ5wwJTVK1BlbK60A6Tu3Q" />
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="description" content="TinyLoad — simple PE packer for Windows. LZ77 compression, custom VM encryption, VEH page-fault decryption, anti-dump. Single-file, no dependencies.">
-        <meta name="keywords" content="PE packer, executable packer, Windows packer, LZ77, VM encryption, anti-dump, VEH, page-fault decryption, executable protection, TinyLoad">
-        <meta property="og:title" content="TinyLoad — PE packer for Windows">
-        <meta property="og:description" content="Compress and encrypt Windows executables with a custom VM. LZ77, VEH page-fault decryption, anti-dump.">
-        <meta property="og:type" content="website">
-        <title>TinyLoad — PE packer for Windows</title>
-        <style>
-            :root {
-                --bg: #ffffff;
-                --fg: #1e293b;
-                --muted: #64748b;
-                --accent: #7c3aed;
-                --accent-dim: #6d28d9;
-                --code-bg: #f1f5f9;
-                --border: #e2e8f0;
-                --radius: 6px;
-            }
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="TinyLoad v7.3 — a free, open source PE packer and crypter for Windows x64 executables.">
+    <meta name="robots" content="index, follow">
+    <meta name="author" content="iamsopotatoe-coder">
+	<meta name="google-site-verification" content="yXHaSuNNB2DGd8MNhQ6SbFZ5wwJTVK1BlbK60A6Tu3Q" />
+    <link rel="canonical" href="https://iamsopotatoe-coder.github.io/TinyLoad/">
 
-            * { box-sizing: border-box; margin: 0; padding: 0; }
 
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                font-size: 15px;
-                line-height: 1.65;
-                color: var(--fg);
-                background: var(--bg);
-                max-width: 820px;
-                margin: 0 auto;
-                padding: 40px 24px 60px;
-            }
+   
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="TinyLoad">
+    <meta property="og:title" content="TinyLoad v7.3 — PE Packer &amp; Crypter for Windows">
+    <meta property="og:description" content="Open-source PE packer for x64 executables. Custom VM encryption, LZ77 compression, VEH page-fault decryption, anti-dump. One .cpp file, no dependencies.">
+    <meta property="og:url" content="https://iamsopotatoe-coder.github.io/TinyLoad/">
+    <meta property="og:image" content="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1">
 
-            h1 {
-                font-size: 28px;
-                font-weight: 700;
-                letter-spacing: -0.5px;
-                margin-bottom: 4px;
-            }
-            h2 {
-                font-size: 20px;
-                font-weight: 650;
-                margin: 36px 0 12px;
-                color: var(--fg);
-            }
-            h3 {
-                font-size: 17px;
-                font-weight: 650;
-                margin: 28px 0 8px;
-                color: var(--fg);
-            }
-            h4 {
-                font-size: 14px;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                color: var(--muted);
-                margin: 20px 0 8px;
-            }
 
-            p { margin-bottom: 12px; }
 
-            a {
-                color: var(--accent);
-                text-decoration: none;
-                font-weight: 500;
-            }
-            a:hover { color: var(--accent-dim); text-decoration: underline; }
+    <title>TinyLoad v7.3 — PE Packer &amp; Crypter for Windows | Open Source</title>
 
-            hr {
-                border: none;
-                border-top: 1px solid var(--border);
-                margin: 32px 0;
-            }
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "TinyLoad",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Windows",
+        "softwareVersion": "7.3",
+        "description": "Open-source PE packer and crypter for Windows x64 executables. Custom 28-opcode VM encryption, LZ77 compression, VEH page-fault decryption and anti-dump protection in a single C++ file with no external dependencies.",
+        "url": "https://iamsopotatoe-coder.github.io/TinyLoad/",
+        "codeRepository": "https://github.com/iamsopotatoe-coder/TinyLoad",
+        "downloadUrl": "https://github.com/iamsopotatoe-coder/TinyLoad/releases",
+        "license": "https://opensource.org/licenses/MIT",
+        "author": { "@type": "Person", "name": "iamsopotatoe-coder" },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    }
+    </script>
 
-            pre {
-                background: var(--code-bg);
-                border: 1px solid var(--border);
-                border-radius: var(--radius);
-                padding: 16px 20px;
-                font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
-                font-size: 13px;
-                line-height: 1.55;
-                overflow-x: auto;
-                margin-bottom: 16px;
-            }
-            pre.usage {
-                background: var(--fg);
-                color: #e2e8f0;
-                border: none;
-                padding: 20px 24px;
-                font-size: 14px;
-            }
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 36px 20px 56px; font-family: "Segoe UI", system-ui, -apple-system, Tahoma, Verdana, sans-serif; font-size: 15px; line-height: 1.6; color: #1a1a1a; background: #ececec; }
+        .page { max-width: 880px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { margin: 0 0 6px; font-size: 36px; font-weight: 800; letter-spacing: .3px; }
+        .header h1 .ver { display: inline-block; font-size: 14px; font-weight: 700; color: #fff; background: #000080; border: 1px solid #000060; padding: 2px 10px; vertical-align: 10px; margin-left: 8px; }
+        .tagline { margin: 0 0 18px; font-size: 16px; color: #3d3d3d; }
+        .group { margin: 0 0 26px; padding: 0; background: transparent; border: 0; box-shadow: none; }
+        .gtitle { font-weight: 700; font-size: 16px; margin: 0 0 10px; color: #000080; letter-spacing: .2px; }
+        p { margin: 0 0 10px; }
+        .group p:last-child { margin-bottom: 0; }
+        ul, ol { margin: 6px 0 10px 22px; padding: 0; }
+        li { margin-bottom: 6px; }
+        .sunken { background: #fff; border: 1px solid #bdbdbd; box-shadow: inset 1px 1px 3px rgba(0,0,0,.18); padding: 12px 14px; overflow-x: auto; border-radius: 2px; }
+        pre { font-family: Consolas, "Cascadia Mono", "Lucida Console", monospace; font-size: 13.5px; line-height: 1.55; margin: 0; white-space: pre; }
+        code { font-family: Consolas, "Cascadia Mono", "Lucida Console", monospace; font-size: 13px; background: #eaeaea; border: 1px solid #c5c5c5; padding: 1px 5px; border-radius: 2px; }
+        pre code, .sunken code { background: none; border: none; padding: 0; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #bdbdbd; box-shadow: inset 1px 1px 3px rgba(0,0,0,.12); }
+        th { background: #e8e8e8; text-align: left; padding: 7px 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .4px; border: 1px solid #c5c5c5; }
+        td { padding: 7px 12px; border: 1px solid #d6d6d6; vertical-align: top; background: #fff; }
+        .btn { display: inline-flex; align-items: center; gap: 11px; background: #e9e9e9; border: 1px solid #8f8f8f; border-top-color: #fff; border-left-color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.25); padding: 8px 16px; font-family: inherit; font-size: 15px; font-weight: 700; color: #000; text-decoration: none; letter-spacing: .4px; transition: transform .06s ease, box-shadow .06s ease; }
+        .btn:hover { color: #fff; background: #000080; border-color: #000060; border-top-color: #3030a8; border-left-color: #3030a8; box-shadow: 0 3px 8px rgba(0,0,0,.3); }
+        .btn:hover path { fill: #fff; }
+        .btn:active { border-top-color: #8f8f8f; border-left-color: #8f8f8f; box-shadow: inset 0 1px 4px rgba(0,0,0,.25); transform: translateY(1px); }
+        .btn svg { width: 24px; height: 24px; flex: 0 0 auto; }
+        .btn-big { font-size: 18px; padding: 12px 24px; gap: 13px; }
+        .btn-big svg { width: 31px; height: 31px; }
+        .btn-sub { display: block; font-weight: 400; font-size: 12px; color: #555; letter-spacing: 0; }
+        .center { text-align: center; }
+        a { color: #0000c8; }
+        a:hover { color: #b00000; }
+        img { max-width: 100%; height: auto; }
+        .dieimg { display: flex; gap: 12px; justify-content: center; align-items: flex-start; }
+        .image-loading { position: relative; display: flex; width: calc(48% - 6px); min-height: 180px; align-items: center; justify-content: center; overflow: hidden; background: transparent; border: 0; }
+        .image-loading::before { content: ""; width: 28px; height: 28px; border: 3px solid #b6b6b6; border-top-color: #000080; border-radius: 50%; animation: image-spin .75s linear infinite; }
+        .image-loading.loaded::before, .image-loading.failed::before { display: none; }
+        .image-loading img { display: block; max-width: 100%; opacity: 0; }
+        .image-loading.loaded img { opacity: 1; }
+        .image-loading.failed::after { content: "Image could not load"; font-size: 13px; color: #555; }
+        @keyframes image-spin { to { transform: rotate(360deg); } }
+        .footer { text-align: center; font-size: 13px; color: #4a4a4a; border-top: 1px solid #c5c5c5; padding-top: 14px; }
+        @media (max-width: 700px) { .dieimg { display: block; } .image-loading { width: 100%; margin-bottom: 12px; } }
+    </style>
+</head>
+<body>
 
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-bottom: 16px;
-                font-size: 14px;
-            }
-            th {
-                text-align: left;
-                font-weight: 650;
-                color: var(--muted);
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                padding: 8px 12px;
-                border-bottom: 2px solid var(--border);
-            }
-            td {
-                padding: 10px 12px;
-                border-bottom: 1px solid var(--border);
-                vertical-align: top;
-            }
-            td code {
-                background: var(--code-bg);
-                padding: 2px 6px;
-                border-radius: 3px;
-                font-size: 13px;
-            }
+<div class="page">
 
-            ul, ol { margin: 8px 0 16px 22px; }
-            li { margin-bottom: 6px; }
-            li strong { color: var(--fg); }
+    <header class="header">
+        <h1>TinyLoad<span class="ver">v7.3</span></h1>
+        <p class="tagline">
+            <em>TinyLoad v7.3 - PE packer for windows</em>
+        </p>
 
-            small { color: var(--muted); font-size: 13px; }
+        <a class="btn btn-big" href="https://github.com/iamsopotatoe-coder/TinyLoad" target="_blank" rel="noopener">
+            <svg viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.362 19.412-6.518 33.405-24.934 33.405-46.69C97.707 22 75.788 0 48.854 0z" fill="#24292f"/>
+            </svg>
+            <span>OPEN SOURCE<span class="btn-sub">github.com/iamsopotatoe-coder/TinyLoad</span></span>
+        </a>
+    </header>
 
-            .main-header {
-                margin-bottom: 28px;
-                padding-bottom: 20px;
-                border-bottom: 1px solid var(--border);
-            }
-            .main-header p { color: var(--muted); margin-bottom: 6px; }
-            .main-header nav { margin-top: 8px; }
-            .main-header nav a {
-                font-weight: 500;
-                margin-right: 14px;
-            }
-
-            .section { display: none; }
-            #home { display: block; }
-
-            #blog:target { display: block; }
-            #blog:target ~ #home { display: none; }
-            #home:target { display: block; }
-            body:has(#blog:target) .main-header { display: none; }
-        </style>
-    </head>
-
-    <body>
-        <div class="main-header">
-            <h1>TinyLoad</h1>
+    <main>
+        <section class="group">
+            <h2 class="gtitle">how it works</h2>
             <p>
-                simple PE packer with LZ77 compression and custom VM encryption
-                for Windows executables.
+                TinyLoad appends your payload to a copy of itself. when the packed exe
+                runs it extracts the payload, decrypts it, and executes it directly in
+                memory without ever writing the original to disk. every time you pack
+                something the VM opcodes are randomly changed and put into 4
+                independently keyed subtables so no 2 builds are the same.
             </p>
-            <nav><a href="#home">Home</a><a href="#blog">Blog</a></nav>
-        </div>
+        </section>
 
-        <div id="blog" class="section">
-            <p><a href="#home">← Back to Home</a></p>
-            <h2>Development Blog</h2>
-
-            <h3>v7 is live — VEH Page-Fault Decryption & Overlay Hardening</h3>
+        <section class="group">
+            <h2 class="gtitle">download</h2>
             <p>
-                v7 adds runtime memory encryption, overlay structural obfuscation, and tamper detection. The payload is never fully decrypted in memory at any point — pages are decrypted on first access and re-encrypted after 200ms of idle time.
+                grab a precompiled binary from
+                <a href="https://github.com/iamsopotatoe-coder/TinyLoad/releases">releases</a>
+                or build it yourself.
             </p>
+        </section>
 
-            <h4>what changed</h4>
-            <ul>
-                <li><strong>VEH Page-Fault Decryption:</strong> All PE section pages are mapped as PAGE_NOACCESS. A vectored exception handler decrypts pages on first access and restores their original section protection. A watchdog thread re-encrypts cold pages after 200ms of inactivity with a 256-slot LRU cache. Memory dumps capture only recently-accessed pages.</li>
-                <li><strong>Overlay Chunk Splitting:</strong> The payload is split into 4 chunks scattered across the file with random junk gaps (128–640 bytes) and shuffled logical order.</li>
-                <li><strong>Encrypted Overlay Metadata:</strong> Every Tail field (sizes, flags, dispatch keys, VM code size, canary data) is individually XOR-encrypted with per-file stubKey derived from the .text section.</li>
-                <li><strong>Encrypted VM Bytecode:</strong> The VM program blob is XOR-encrypted with a stubKey stream — appears as uniform noise in the overlay. Cannot be separated without key derivation.</li>
-                <li><strong>Canary Corridor:</strong> 8 chained integrity checks run inside the VM after decryption. Each canary's expected value depends on the previous actual byte. Failures escalate a cumulative corruption mask (1→8 bits) XOR'd into the plaintext — tampering silently corrupts the output.</li>
-                <li><strong>Zero-Filler Interleave:</strong> Overlay interleaved with zero bytes at 3:1 ratio, reducing entropy from ~7.96 to ~6.73 bits/byte to blend with normal PE section entropy.</li>
-                <li><strong>Encrypted Product Strings:</strong> Help text, CLI flags, and version strings XOR-encrypted at rest. No product name or version markers visible in the packed binary.</li>
-            </ul>
+        <section class="group">
+            <h2 class="gtitle">building from source</h2>
+            <p>you need MinGW (g++). just run:</p>
+            <div class="sunken"><pre>g++ -o TinyLoad.exe TinyLoad.cpp -static -O2 -s</pre></div>
+            <p style="margin-top:8px">or use <code>build.bat</code>.</p>
+        </section>
 
-            <h4>why this matters</h4>
-            <p>
-                Previous versions protected the payload at rest and wiped imports on load. v7 ensures the payload is never fully decrypted in memory at any given moment — even if an analyst dumps the process, most pages are encrypted XOR noise. The watchdog re-encrypt cycle means the window to capture decrypted code is at most 200ms per page.
-            </p>
-            <p>
-                The overlay hardening means finding where the payload starts requires extracting and hashing the stub's .text section to derive stubKey. The chunk splitting, interleaving, and encrypted metadata make static overlay carving impractical.
-            </p>
-
-            <h3>v6 is live — Control Flow Obfuscation & Deep Hardening</h3>
-            <p>
-                v6 doesn't just hide the payload — it hides the stub itself. Every major function is now flattened through indirect dispatch tables, the VM interpreter has no recognizable switch statement, and the opcode decoder is split across four independently-keyed tables.
-            </p>
-
-            <h4>what changed</h4>
-            <ul>
-                <li><strong>Control Flow Flattening on vmRun:</strong> The VM interpreter's switch statement is gone — replaced by a computed-goto dispatch table built from encrypted label offsets. No static disassembler can reconstruct the opcode handler layout without the per-file key stored in the tail.</li>
-                <li><strong>Split Opcode Decoder:</strong> Instead of one 32-entry opmap, opcodes are scattered across four separate 8-entry subtables, each XOR-encrypted with an independent key derived from different slices of the payload and VM bytecode. Cracking one subtable reveals at most 8 of 28 opcodes.</li>
-                <li><strong>Staged Entry Point:</strong> <code>tryRun</code> is broken into 6 stages dispatched through a function pointer table — no linear flow to trace. The PE loader (<code>runInMem</code>) is split into 5 stages using the same pattern.</li>
-                <li><strong>String Decryption Noise:</strong> All encrypted strings are pre-decrypted once at startup, then <code>noiseDecrypt()</code> fires at scattered points — every stage, every 64 VM iterations. Real <code>sdec2</code> calls (IAT hooking) are drowned in identical-looking decoys. Dynamic traces become useless.</li>
-                <li><strong>Encrypted Dispatch Table:</strong> The VM dispatch offsets are never plaintext in the packed binary. The packer reads live label offsets from its own process, encrypts them with a random key, and stores them in the tail. The packed stub decrypts and recomputes the dispatch at runtime.</li>
-                <li><strong>Full Resource Cloning:</strong> All resource types are now enumerated and cloned — not just icons and manifests. RT_RCDATA, bitmaps, dialogs, string tables, fonts, and accelerators all survive packing.</li>
-                <li><strong>Compression improvement:</strong> Fixed a hash-chain self-loop in the LZ compressor that was silently degrading match quality. Compression ratios improved ~2% across the board.</li>
-            </ul>
-
-            <h4>why this matters</h4>
-            <p>
-                v5 protected the payload. v6 protects the protector. Every major code path in the stub now runs through indirect function calls — the control flow graph is a web, not a tree. The VM interpreter has no switch statement to fingerprint. String decryption calls that used to be precise markers for "here's where the stub reads encrypted data" are now indistinguishable from noise. An analyst can't tell which <code>sdec2</code> call is real and which is a decoy without executing every path.
-            </p>
-            <p>
-                The split opcode decoder means even if you recover one subtable key — perhaps by guessing that HLT always maps to opcode 0 — you only get 8 opcodes. The remaining 20 are behind three different keys derived from different data.
-            </p>
-
-            <h3>v5 is here — Anti-Dump & Stealth</h3>
-            <p>
-                v5 doubles down on anti-analysis. The payload is now worthless without the stub at runtime — dumping from memory gets you a broken executable with no import table.
-            </p>
-
-            <h4>what changed</h4>
-            <ul>
-                <li><strong>Anti-Dump IAT hooking:</strong> Critical API calls (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) are redirected through stub-resident wrappers. The payload's IAT points into stub memory — dump it and the addresses are meaningless.</li>
-                <li><strong>Import directory wiped:</strong> After loading, the import directory and OriginalFirstThunk are zeroed. No automated IAT reconstruction path remains.</li>
-                <li><strong>String encryption:</strong> The signature, DLL names, and API names are XOR-encrypted in the stub binary. No plaintext markers visible to static analysis.</li>
-                <li><strong>Dead code insertion:</strong> Fake functions (CRC32, PEB debug checks, PRNG scrambling) are baked into every packed binary to bloat disassembly and mislead analysts.</li>
-                <li><strong>Opmap encryption:</strong> The VM decode table is now encrypted with a per-file key derived from tail data — not a fixed XOR pattern.</li>
-                <li><strong>Junk instruction insertion:</strong> NOPs, self-moves, and zero-rotates are scattered through the VM bytecode to break pattern matching.</li>
-            </ul>
-
-            <h4>why this matters</h4>
-            <p>
-                Previous versions protected the payload at rest. v5 protects it at runtime too — even if an analyst dumps the decrypted payload from memory, they get an exe with no import table, IAT entries pointing to dead addresses, and no way to automatically remap them. They'd have to manually reverse every IAT slot by its stub address.
-            </p>
-
-            <h3>v4 is out — Protection Updates</h3>
-            <p>
-                v4 is finally here. We focused heavily on anti-analysis and hardening to make TinyLoad practically invisible to standard debuggers and automated unpackers.
-            </p>
-
-            <h4>what changed</h4>
-            <ul>
-                <li><strong>Anti-Debugging integration:</strong> Automatically detect debuggers (`IsDebuggerPresent` and `CheckRemoteDebuggerPresent`) and abort payload execution before decryption even starts.</li>
-                <li>
-                    <strong>VM Opaque Predicates:</strong> Inserted fake branching logic into the custom VM. If you try to reverse or manually alter the execution flow during debugging, it drops into a trap (`HLT`) and halts.
-                </li>
-                <li>
-                    <strong>PE Section Scrambling:</strong> Instead of having obvious packer-specific structural anomalies, TinyLoad v4 intercepts the executable before writing it to disk and rewrites all the section headers (`.text`, `.data`, `.rdata`, etc.) using generic names, blending perfectly into the background and avoiding automated packer detection.
-                </li>
-            </ul>
-
-            <h4>why this matters</h4>
-            <p>
-                A virtual machine is great for hiding the decryption routine, but it doesn't help if an analyst can just step through it or dump the unpacked payload from memory right before execution. The new anti-debugging mechanisms prevent them from even starting the debugging process.
-            </p>
-            <p>
-                The section scrambling completely breaks automated tools that rely on specific packer signatures, forcing analysts to manually reverse the VM just to figure out where the payload actually lives.
-            </p>
-        </div>
-
-        <div id="home" class="section">
-            <h2>What is this</h2>
-            <p>
-                TinyLoad is a simple tool for packing Windows executables. it
-                compresses the input file and encrypts the payload using a
-                custom virtual machine. when the packed executable runs, it
-                spins up a VM interpreter, decrypts the payload, and loads it
-                directly into RAM.
-            </p>
-            <p>
-                the whole thing is one .cpp file with no external dependencies.
-            </p>
-
-            <hr />
-
-            <h2>Usage</h2>
-            <pre>
-TinyLoad.exe --i app.exe --c
-TinyLoad.exe --i app.exe --o packed.exe --vm --c
-TinyLoad.exe --i app.exe --vm --c --veh
-        </pre
-            >
-
+        <section class="group">
+            <h2 class="gtitle">usage</h2>
+            <div class="sunken" style="margin-bottom:10px">
+                <pre>TinyLoad.exe --i &lt;input&gt; [--o &lt;output&gt;] [--vm] [--c] [--veh]</pre>
+            </div>
             <table>
-                <tr>
-                    <th>Flag</th>
-                    <th>What it does</th>
-                </tr>
-                <tr>
-                    <td><code>--i &lt;file&gt;</code></td>
-                    <td>input executable to pack</td>
-                </tr>
-                <tr>
-                    <td><code>--o &lt;file&gt;</code></td>
-                    <td>output path, defaults to inputname_packed.exe</td>
-                </tr>
-                <tr>
-                    <td><code>--vm</code></td>
-                    <td>
-                        encrypt payload with custom VM, randomized ISA every
-                        build
-                    </td>
-                </tr>
-                <tr>
-                    <td><code>--c</code></td>
-                    <td>compress with LZ77</td>
-                </tr>
-                <tr>
-                    <td><code>--veh</code></td>
-                    <td>VEH page-fault decryption</td>
-                </tr>
+                <tr><th>flag</th><th>what it does</th></tr>
+                <tr><td><code>--i &lt;file&gt;</code></td><td>input exe to pack</td></tr>
+                <tr><td><code>--o &lt;file&gt;</code></td><td>output path (default: <code>input_packed.exe</code>)</td></tr>
+                <tr><td><code>--vm</code></td><td>VM encryption</td></tr>
+                <tr><td><code>--c</code></td><td>LZ77 compression</td></tr>
+                <tr><td><code>--veh</code></td><td>VEH page fault decryption</td></tr>
+                <tr><td><code>--noconsole</code></td><td>GUI subsystem</td></tr>
             </table>
+            <p style="margin-top:10px">you need at least 1 of <code>--vm</code>, <code>--c</code>, or <code>--veh</code>.</p>
+            <p style="margin-bottom:6px"><b>examples</b></p>
+            <div class="sunken">
+                <pre>TinyLoad.exe --i app.exe --c
+TinyLoad.exe --i app.exe --o packed.exe --vm --c
+TinyLoad.exe --i app.exe --vm --c --veh</pre>
+            </div>
+        </section>
 
-            <hr />
-
-            <h2>How compression works</h2>
+        <section class="group">
+            <h2 class="gtitle">compression</h2>
             <p>
-                custom hash-chain LZ77 with a 64KB sliding window and deep chain
-                search. uses lazy match evaluation to pick better matches.
-                compression runs on the raw PE first, then VM encryption is
-                applied on top so patterns in the compressed stream are also
-                hidden.
+                custom LZ77 compression with hash chain matching and a 64KB sliding
+                window. compression runs first, then VM encryption goes on top so any
+                patterns in the compressed data get hidden too.
             </p>
+        </section>
 
-            <hr />
-
-            <h2>How VM encryption works</h2>
+        <section class="group">
+            <h2 class="gtitle">vm encryption</h2>
             <p>
-                a custom 28-opcode VM interpreter is embedded in the stub. at
-                pack time the opcode table is split into four 8-entry subtables, each XOR-encrypted with an independent key —
-                so every packed file has a different instruction set spread across multiple decode layers. the decryption
-                program is stored as bytecode with 128-bit keys embedded as
-                immediate values. v6 replaces the switch-based dispatch with a computed-goto jump table built from encrypted label offsets.
+                custom 28 opcode virtual machine that runs inside the stub. the opcodes
+                get randomly placed into 4 subtables of 8 each and every subtable is XOR
+                encrypted with a different key derived from the payload data. cracking 1
+                subtable reveals at most 8 opcodes out of 28. the cipher itself is a 128
+                bit stream cipher using rotl and rotr key mixing run entirely inside the
+                VM interpreter. the payload is encrypted using XXTEA.
             </p>
+        </section>
 
-            <hr />
-
-            <h2>VEH Page-Fault Decryption</h2>
+        <section class="group">
+            <h2 class="gtitle">veh page fault decryption</h2>
             <p>
-                <code>--veh</code> maps all PE section pages as PAGE_NOACCESS. A vectored exception handler decrypts pages on first access and restores their original section protection (PAGE_EXECUTE_READ for .text, PAGE_READONLY for .rdata). A watchdog thread re-encrypts pages after 200ms of inactivity with a 256-slot LRU cache. Memory dumps capture only recently-accessed pages — cold pages remain encrypted XOR noise.
+                with <code>--veh</code> enabled, all PE section pages get mapped as
+                PAGE_NOACCESS. when the program tries to access a page it triggers an
+                exception, a vectored exception handler decrypts just that 1 page and
+                sets the correct protection. a watchdog thread runs in the background
+                and re-encrypts any page that hasnt been touched in 200ms. at any given
+                moment most of your program is still encrypted in memory so memory dumps
+                only capture whatever was recently accessed.
             </p>
+        </section>
 
-            <hr />
-
-            <h2>Download</h2>
+        <section class="group">
+            <h2 class="gtitle">anti dump</h2>
             <p>
-                grab the source on
-                <a href="https://github.com/iamsopotatoe-coder/TinyLoad"
-                    >GitHub</a
-                >
-                or download the latest build:
-                <a
-                    href="https://github.com/iamsopotatoe-coder/TinyLoad/releases"
-                    >releases</a
-                >.
+                the 4 most critical APIs (GetModuleHandleA, GetProcAddress, ExitProcess,
+                VirtualAlloc) get redirected through wrapper functions inside the stub.
+                after the payload is loaded the entire import directory gets zeroed so
+                memory dumps cannot reconstruct the import table.
             </p>
-        </div>
+        </section>
 
-        <hr />
+        <section class="group">
+            <h2 class="gtitle">DIE images</h2>
+            <div class="dieimg">
+                <div class="image-loading">
+                    <img src="https://github.com/user-attachments/assets/b78e57fd-24c0-472d-8ceb-9b67636f3e6e" alt="TinyLoad packed executable analyzed in Detect It Easy" loading="lazy">
+                </div>
+                <div class="image-loading">
+                    <img src="https://github.com/user-attachments/assets/aaaf44fb-37f0-459d-a72a-608a40132d0c" alt="Entropy view of a TinyLoad packed executable in Detect It Easy" loading="lazy">
+                </div>
+            </div>
+        </section>
 
-        <small>MIT License &mdash; 2026</small>
-    </body>
-</html>
+        <section class="group">
+            <h2 class="gtitle">license</h2>
+            <p>MIT</p>
+        </section>
+
+        <section class="group">
+            <h2 class="gtitle">sidenotes</h2>
+            <ul>
+                <li>there are alot of features that i didnt put into the readme, you can read the code yourself or look at the <a href="https://github.com/iamsopotatoe-coder/TinyLoad/blob/main/docs/CHANGELOG.md">changelog</a></li>
+                <li>this works on most files ive tested, if it breaks on yours open an issue and ill look into it</li>
+                <li>suggestions and feature ideas go in issues too</li>
+                <li>if you use it a star helps alot &lt;3</li>
+                <li>yes AVs flag packers, thats expected. (currently has 9 detections on virustotal, any file you pack with it gets 9 detections, the content doesnt matter)</li>
+                <li>please dont pack malware with this, its intended for legitimate purposes</li>
+            </ul>
+        </section>
+
+        <section class="group center">
+            <a class="btn btn-big" href="https://github.com/iamsopotatoe-coder/TinyLoad" target="_blank" rel="noopener">
+                <svg viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.362 19.412-6.518 33.405-24.934 33.405-46.69C97.707 22 75.788 0 48.854 0z" fill="#24292f"/>
+                </svg>
+                <span>VIEW SOURCE<span class="btn-sub">github.com/iamsopotatoe-coder/TinyLoad</span></span>
+            </a>
+        </section>
+    </main>
+
+    <footer class="footer">
+        Readme.md mirror site
+    </footer>
+
+</div>
+<script>
+    document.querySelectorAll('.image-loading img').forEach(function (image) {
+        function finish(state) { image.parentElement.classList.add(state); }
+        image.addEventListener('load', function () { finish('loaded'); });
+        image.addEventListener('error', function () { finish('failed'); });
+        if (image.complete) finish(image.naturalWidth ? 'loaded' : 'failed');
+    });
+
