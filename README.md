@@ -84,6 +84,5 @@ MIT
 - this works on most files ive tested, if it breaks on yours open an issue and ill look into it
 - suggestions and feature ideas go in issues too
 - if you use it a star helps alot <3 
-- check the blog at https://iamsopotatoe-coder.github.io/TinyLoad/#blog for future updates
 - yes AVs flag packers, thats expected. (Currently has 9 detections on virustotal, any file you pack with it gets 9 detections, the content doesnt matter)
 - please dont pack malware with this, its intended for legitimate purposes 
