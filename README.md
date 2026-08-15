@@ -74,11 +74,6 @@ with `--veh` enabled, all PE section pages get mapped as PAGE_NOACCESS. when the
 
 the 4 most critical APIs (GetModuleHandleA, GetProcAddress, ExitProcess, VirtualAlloc) get redirected through wrapper functions inside the stub. after the payload is loaded the entire import directory gets zeroed so memory dumps cannot reconstruct the import table.
 
-
-### Graph:
-
-<img width="2100" height="1200" alt="631688071-324a4b82-29fb-40cf-9b01-15687aba7cae-mh" src="https://github.com/user-attachments/assets/f6e2818e-82d9-4437-a8d3-fe364cf33bec" />
-
 ## *license*
 
 MIT
