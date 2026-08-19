@@ -2,7 +2,7 @@
 
 ## *TinyLoad v7.3 - PE packer for windows* 
 <p align=”left">
-  <img alt="Version" src="https://img.shields.io/badge/version-v7.2-e84393?style=plastic&logo=cplusplus&logoColor=white&labelColor=0d0d0d">
+  <img alt="Version" src="https://img.shields.io/badge/version-v7.3-e84393?style=plastic&logo=cplusplus&logoColor=white&labelColor=0d0d0d">
   <img alt="Actively Maintained" src="https://img.shields.io/badge/Actively%20Maintained-2ed573?style=plastic&logo=checkmarx&logoColor=white">
   <a href="https://github.com/gmh5225/awesome-game-security"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome" height="18"></a>
 </p>
