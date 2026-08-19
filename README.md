@@ -1,12 +1,10 @@
 <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
 
 ## *TinyLoad v7.3 - PE packer for windows* 
-<p align=”left">
-  <img alt="Version" src="https://img.shields.io/badge/version-v7.3-e84393?style=plastic&logo=cplusplus&logoColor=white&labelColor=0d0d0d">
-  <img alt="Actively Maintained" src="https://img.shields.io/badge/Actively%20Maintained-2ed573?style=plastic&logo=checkmarx&logoColor=white">
-  <a href="https://github.com/gmh5225/awesome-game-security"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome" height="18"></a>
+<p align="left">
+  <a href="https://github.com/iamsopotatoe-coder/TinyLoad/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/iamsopotatoe-coder/TinyLoad/build.yml?style=flat&logo=github&logoColor=white&label=build&labelColor=0d0d0d" alt="build"></a>
+  <a href="https://github.com/gmh5225/awesome-game-security"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome" height="20"></a>
 </p>
-
 
 TinyLoad is an pe crypter/packer for x64 executables it packs an input exe with varying protection layers to prevent it from being reverse engineered. Its 1 single .cpp file and does not have any external dependencies.
 
