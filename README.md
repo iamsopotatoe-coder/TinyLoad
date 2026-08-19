@@ -1,6 +1,6 @@
-<img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="70%" />
+<p align="center"> <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="600" /> </p>
 
-## *TinyLoad v7.3 - PE packer for windows* 
+## *TinyLoad v7.3 - PE packer and crypter for windows* 
 <p align="left">
   <a href="https://github.com/iamsopotatoe-coder/TinyLoad/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/iamsopotatoe-coder/TinyLoad/build.yml?style=flat&logo=github&logoColor=white&label=build&labelColor=0d0d0d" alt="build"></a>
   <a href="https://github.com/gmh5225/awesome-game-security"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome" height="20"></a>
@@ -11,6 +11,51 @@ TinyLoad is an pe crypter/packer for x64 executables it packs an input exe with 
 ## *how it works*
 
 TinyLoad appends your payload to a copy of itself. when the packed exe runs it extracts the payload, decrypts it, and executes it directly in memory without ever writing the original to disk. every time you pack something the VM opcodes are randomly changed and put into 4 independently keyed subtables so no 2 builds are the same.
+<details>
+<summary><b>pack() pipeline</b></summary>
+  
+```mermaid
+flowchart TD
+    start["pack(in, out, vm, comp, veh, noconsole)"] --> load["loadFile(in) → orig"]
+    load --> pe{"MZ + PE00 + Machine 0x8664 + NumberOfSections in 1..96?"}
+    pe -->|fail| err["printf error / return false"]
+    pe -->|ok| init["pay = orig    flags = 0"]
+    
+    init --> cdec{"--c ?"}
+    cdec -->|yes| lz["flags |= 1<br/>lzPack: WINDOW=0xFFFF  MAXCHAIN=4096<br/>MAXMATCH=258  MINMATCH=3  HSIZE=65536<br/>hash4 = FNV-ish fold * 0x1000193<br/>lazy lookahead la = 1,2<br/>out = uint32le origSz + 8-token flag bytes<br/>match → varint dist, varint len-3"]
+    cdec -->|no| vmq
+    lz --> vmq{"--vm ?"}
+
+    vmq -->|yes| scatter["flags |= 2<br/>Fisher-Yates 32 slots, scatter NUM_OPS=28<br/>into subtables 4x8, unused stay 0xFF<br/>opmap_enc op = tbl shl 6 OR idx"]
+    scatter --> canary["canary corridor n=8, skip first 0x400 of pay<br/>canExp c = pay at off XOR prev"]
+    canary --> mkvm["makeVmProgram opmap_enc, key1, key2, canary<br/>key1,key2 ← mt19937_64 TickCount64 XOR QPC<br/>opaque predicates + stream loop + canary mask"]
+    mkvm --> venc["vmEncryptPayload  192-bit state<br/>k3 = 0x9E3779B97F4A7C15<br/>ks = uint8((k1 XOR k2) + k3)<br/>b = NOT(b XOR ks)<br/>k1 = rotl64(k1,11) XOR k2<br/>k2 = rotr64(k2,19) + k1 + k3<br/>k3 = k3 * phi XOR k1"]
+    vmq -->|no| vehq
+    venc --> vehq{"--veh ?"}
+
+    vehq -->|yes| vflag["flags |= FLAG_VEH 4"]
+    vehq -->|no| stub
+    vflag --> stub["stub = loadFile GetModuleFileNameA self<br/>saveFile out, stub as host image"]
+
+    stub --> skey["stubKey = 0x9E3779B97F4A7C15<br/>for i in 0x1000 .. min n, 0x2000:<br/>stubKey = (stubKey XOR stub i) * phi"]
+    skey --> disp["prime vmRun dispKey=0 → fill g_off<br/>dispKey ← rng<br/>encOff j = uint64(g_off j) XOR dispKey"]
+
+    disp --> tail["Tail: sig TINYLD60, origSz, packSz, flags,<br/>dispOff x28, subtables 4x8, vmCodeSz,<br/>dispKey, canary*, chunk*,<br/>payHash = SHA-256 orig first 8B"]
+    tail --> hide["sig i XOR= stubKey shr 8i<br/>xorOpmap FNV-1a 0x811C9DC5 / 0x01000193<br/>feeds origSz, packSz, vmCodeSz + first 32B<br/>of vmCode and pay, per-table<br/>flags |= FLAG_CHUNK 8"]
+    hide --> tenc["XOR-encode Tail fields with stubKey slices<br/>vmCode vi XOR= stubKey shr ((vi*3) and 63)"]
+
+    tenc --> ovl["payload = vmCode || pay<br/>interleave: insert 0x00 after every 3 bytes"]
+    ovl --> chunks["split into 4 chunks, shuffle physical order<br/>Tail placeholder TAIL_SERIALIZED_SZ = 419<br/>before each chunk: 128..640 RNG junk"]
+    chunks --> tea["xxteaEncrypt bytes after Tail<br/>DELTA=0x9E3779B9  rounds=6+52/n<br/>remainder XOR pxKey0 xor pxKey1 xor pxKey2 xor pxKey3<br/>patch k i XOR FEEDF00D / CAFEBABE /<br/>DEADBEEF / 8BADF00D into _pxBlock<br/>between C0DE1337 and B007DEAD"]
+    tea --> ser["XOR chunkOff / chunkSz / chunkOrder / chunkCnt<br/>serializeTail: 16 TLV records id + u16le sz + bytes<br/>Fisher-Yates order, LCG 1103515245+12345<br/>seed = stubKey XOR filesize<br/>append DWORD LE: tailOff XOR stubKey low 32"]
+
+    ser --> fin{"--noconsole ?"}
+    fin -->|yes| gui["OptionalHeader.Subsystem = IMAGE_SUBSYSTEM_WINDOWS_GUI"]
+    fin -->|no| scr
+    gui --> scr["scrambleSections: cycle names<br/>.text .data .rdata .bss .idata"]
+    scr --> done["saveFile out, result"]
+```
+</details>
 
 ## *download*
 
@@ -50,9 +95,10 @@ you need at least 1 of `--vm`, `--c`, or `--veh`.
 ## *DIE images*
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/b78e57fd-24c0-472d-8ceb-9b67636f3e6e" alt="die-gui-packed" height="300" style="max-width: 48%; border-radius: 6px;" />
-  <img src="https://github.com/user-attachments/assets/aaaf44fb-37f0-459d-a72a-608a40132d0c" alt="die-gui-entropy" height="300" style="max-width: 48%; border-radius: 6px;" />
+  <img src="https://github.com/user-attachments/assets/b78e57fd-24c0-472d-8ceb-9b67636f3e6e" alt="die-gui-packed" height="250" " />
+  <img src="https://github.com/user-attachments/assets/aaaf44fb-37f0-459d-a72a-608a40132d0c" alt="die-gui-entropy" height="250" " />
 </p>
+
 
 ## *compression*
 
