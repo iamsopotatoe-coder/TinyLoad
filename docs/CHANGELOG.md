@@ -1,6 +1,16 @@
 
 # Changelog
 
+##TinyLoad v7.4
+* VM cipher keys are derived at runtime now instead of sitting in the bytecode as immediates
+* VM bytecode is different every build
+* opaque predicates and light CFF on the native x64 stub itself.
+* key schedule split into pieces with no constants in them (the old one had 14 golden ratio constants in one function)
+* the internal hash is officially shax256 now, it never was real sha256 anyway
+* Better compression beacuse i thinkered with settings
+
+(Note: the unpacker is 17kb fatter because of the new compression)
+
 ## v7.3
 * bypassed "XEmulUnpacker" https://github.com/horsicq/XEmulUnpacker OEP unpacking by changing call rax in sp_go() to callq*(%reg) (memory indirect FF 10)
 * new anti debugging syscall in the SSN table
