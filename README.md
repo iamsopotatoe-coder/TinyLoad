@@ -1,6 +1,6 @@
 <p align="center"> <img src="https://github.com/user-attachments/assets/ada41458-c6f8-4916-b09d-39d37dcacfd1" alt="github-social-preview" width="600" /> </p>
 
-## *TinyLoad v7.3 - PE packer and crypter for windows* 
+## *TinyLoad v7.4 - PE packer and crypter for windows* 
 <p align="left">
   <a href="https://github.com/iamsopotatoe-coder/TinyLoad/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/iamsopotatoe-coder/TinyLoad/build.yml?style=flat&logo=github&logoColor=white&label=build&labelColor=0d0d0d" alt="build"></a>
   <a href="https://github.com/gmh5225/awesome-game-security"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome" height="20"></a>
