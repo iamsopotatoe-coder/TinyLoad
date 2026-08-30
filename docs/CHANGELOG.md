@@ -1,7 +1,7 @@
 
 # Changelog
 
-##TinyLoad v7.4
+## TinyLoad v7.4
 * VM cipher keys are derived at runtime now instead of sitting in the bytecode as immediates
 * VM bytecode is different every build
 * opaque predicates and light CFF on the native x64 stub itself.
